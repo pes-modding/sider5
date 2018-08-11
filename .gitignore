@@ -1,0 +1,12 @@
+*.obj
+s*.exp
+s*.lib
+*.exe
+*.res
+s*.dll
+lua51.dll
+lua51.exp
+lua51.lib
+memlib_lua.h
+*.log*
+*~

@@ -1,0 +1,33 @@
+Sider 4 Release History
+=======================
+
+
+August 6, 2018
+v4.1.2
+- new feature: trophy.lua - for cup celebration scenes
+- fix: context is now cleared when user returns to main menu.
+- performance improvement for LiveCPK events in Lua modules.
+
+
+August 1, 2018
+v4.1.1
+- fix for crash in set_teams event handler
+- subtle correction for make_key handler behaviour:
+  if it returns nil or any non-string value, or throws
+  an error, then the key as assumed to be the filename.
+  (as described in doc/scripting.txt)
+
+
+July 31, 2018
+v4.1.0
+- Lua scripting engine, first release:
+  set_teams, set_stadium, set_conditions, set_match_time
+  as well as LiveCPK-related events are supported.
+
+
+June 15, 2018
+v4.0.1
+- initial public release
+- LiveCPK support
+
+

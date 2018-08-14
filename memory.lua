@@ -188,10 +188,12 @@ function m.get_process_info()
     local base = ffi.cast('char*',dos_header)
     for i=0,fh.NumberOfSections-1 do
         local s = sec + i
+        local name = ffi.string(s.Name, 8)
+        name = string.match(name, '[%w._]+')
         local start = base + s.VirtualAddress
         local finish = start + s.Misc.VirtualSize
         t[#t+1] = {
-            name = ffi.string(s.Name, 8),
+            name = name,
             start = start,
             finish = finish,
             image_section_header = s,

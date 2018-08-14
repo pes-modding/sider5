@@ -4,7 +4,7 @@
 #include "memlib.h"
 #include "memlib_lua.h"
 
-void init_memlib(lua_State *L, const char *name)
+void init_memlib(lua_State *L)
 {
     int r = luaL_loadbuffer(L, memlib_lua, strlen(memlib_lua), "memlib");
     if (r != 0) {
@@ -23,8 +23,5 @@ void init_memlib(lua_State *L, const char *name)
         lua_pop(L, 1);
         return;
     }
-
-    // module table is on the stack now
-    lua_setfield(L, -2, name);
 }
 

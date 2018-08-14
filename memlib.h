@@ -3,6 +3,6 @@
 
 #include "lua.hpp"
 
-void init_memlib(lua_State *L, const char *name);
+void init_memlib(lua_State *L);
 
 #endif

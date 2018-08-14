@@ -1809,7 +1809,8 @@ static void push_env_table(lua_State *L, const wchar_t *script_name)
     lua_settable(L, -3);
 
     // memory lib
-    init_memlib(L, "memory");
+    lua_pushvalue(L, 2);
+    lua_setfield(L, -2, "memory");
 
     /*
     // gameplay lib
@@ -1856,6 +1857,9 @@ void init_lua_support()
 
         // prepare context table
         push_context_table(L);
+
+        // memory library
+        init_memlib(L);
 
         // load registered modules
         for (list<wstring>::iterator it = _config->_module_names.begin();

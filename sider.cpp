@@ -212,31 +212,32 @@ bool _is_edit_mode(false);
 HANDLE _mh = NULL;
 
 typedef struct {
-    wstring *key;
+    void *value;
     __time64_t expires;
-} key_map_value_t;
+} cache_map_value_t;
 
-typedef unordered_map<string,key_map_value_t> key_map_t;
-class key_cache_t {
-    key_map_t _map;
+typedef unordered_map<string,cache_map_value_t> cache_map_t;
+
+class cache_t {
+    cache_map_t _map;
     int _ttl_sec;
     CRITICAL_SECTION *_kcs;
 public:
-    key_cache_t(CRITICAL_SECTION *cs, int ttl_sec) :
+    cache_t(CRITICAL_SECTION *cs, int ttl_sec) :
         _ttl_sec(ttl_sec), _kcs(cs) {}
-    ~key_cache_t() {
-        log_(L"key_cache: size:%d\n", _map.size());
+    ~cache_t() {
+        log_(L"cache: size:%d\n", _map.size());
     }
-    bool lookup(char *filename, wstring **res) {
+    bool lookup(char *filename, void **res) {
         EnterCriticalSection(_kcs);
-        key_map_t::iterator i = _map.find(filename);
+        cache_map_t::iterator i = _map.find(filename);
         if (i != _map.end()) {
             __time64_t ltime;
             _time64(&ltime);
             //logu_("key_cache::lookup: %s %llu > %llu\n", filename, i->second.expires, ltime);
             if (i->second.expires > ltime) {
                 // hit
-                *res = i->second.key;
+                *res = i->second.value;
                 //logu_("lookup FOUND: (%08x) %s\n", i->first, filename);
                 LeaveCriticalSection(_kcs);
                 return true;
@@ -254,12 +255,12 @@ public:
         LeaveCriticalSection(_kcs);
         return false;
     }
-    void put(char *filename, wstring *key) {
+    void put(char *filename, void *value) {
         EnterCriticalSection(_kcs);
         __time64_t ltime;
         _time64(&ltime);
-        key_map_value_t v;
-        v.key = key;
+        cache_map_value_t v;
+        v.value = value;
         v.expires = ltime + _ttl_sec;
         /*
         logu_("key_cache::put: key = %s\n", filename);
@@ -270,19 +271,20 @@ public:
             log_(L"key_cache::put: NULL, %llu\n", v.expires);
         }
         */
-        pair<key_map_t::iterator,bool> res = _map.insert(
-            pair<string,key_map_value_t>(filename, v));
+        pair<cache_map_t::iterator,bool> res = _map.insert(
+            pair<string,cache_map_value_t>(filename, v));
         if (!res.second) {
             // replace existing
             //logu_("REPLACED for: %s\n", filename);
-            res.first->second.key = v.key;
+            res.first->second.value = v.value;
             res.first->second.expires = v.expires;
         }
         LeaveCriticalSection(_kcs);
     }
 };
 
-key_cache_t *_key_cache(NULL);
+cache_t *_key_cache(NULL);
+cache_t *_rewrite_cache(NULL);
 
 struct module_t {
     lookup_cache_t *cache;
@@ -341,6 +343,7 @@ public:
     list<wstring> _lua_extra_globals;
     int _dll_mapping_option;
     int _key_cache_ttl_sec;
+    int _rewrite_cache_ttl_sec;
     wstring _section_name;
     list<wstring> _cpk_roots;
     list<wstring> _exe_names;
@@ -373,6 +376,7 @@ public:
                  _close_sider_on_exit(false),
                  _start_minimized(false),
                  _key_cache_ttl_sec(10),
+                 _rewrite_cache_ttl_sec(10),
                  _hp_at_read_file(NULL),
                  _hp_at_get_size(NULL),
                  _hp_at_extend_cpk(NULL),
@@ -468,6 +472,10 @@ public:
 
         _key_cache_ttl_sec = GetPrivateProfileInt(_section_name.c_str(),
             L"key-cache.ttl-sec", _key_cache_ttl_sec,
+            config_ini);
+
+        _rewrite_cache_ttl_sec = GetPrivateProfileInt(_section_name.c_str(),
+            L"rewrite-cache.ttl-sec", _rewrite_cache_ttl_sec,
             config_ini);
 
         _num_minutes = GetPrivateProfileInt(_section_name.c_str(),
@@ -978,9 +986,9 @@ void module_set_teams(module_t *m, DWORD home, DWORD away)
     }
 }
 
-bool module_rewrite(module_t *m, const char *file_name)
+char *module_rewrite(module_t *m, const char *file_name)
 {
-    bool res(false);
+    char *res(NULL);
     EnterCriticalSection(&_cs);
     lua_pushvalue(m->L, m->evt_lcpk_rewrite);
     lua_xmove(m->L, L, 1);
@@ -993,8 +1001,7 @@ bool module_rewrite(module_t *m, const char *file_name)
     }
     else if (lua_isstring(L, -1)) {
         const char *s = luaL_checkstring(L, -1);
-        strcpy((char*)file_name, s);
-        res = true;
+        res = strdup(s);
     }
     lua_pop(L, 1);
     LeaveCriticalSection(&_cs);
@@ -1071,15 +1078,32 @@ wstring *module_get_filepath(module_t *m, const char *file_name, char *key)
 
 bool do_rewrite(char *file_name)
 {
+    char key[512];
+    char *res = NULL;
+    if (_config->_rewrite_cache_ttl_sec) {
+        if (_rewrite_cache->lookup(file_name, (void**)&res)) {
+            // rewrite-cache: for performance
+            if (res) {
+                strcpy(file_name, res);
+            }
+            return res != NULL;
+        }
+    }
+
     list<module_t*>::iterator i;
     for (i = _modules.begin(); i != _modules.end(); i++) {
         module_t *m = *i;
         if (m->evt_lcpk_rewrite != 0) {
-            if (module_rewrite(m, file_name)) {
+            res = module_rewrite(m, file_name);
+            if (res) {
+                if (_config->_rewrite_cache_ttl_sec) _rewrite_cache->put(file_name, res);
+                strcpy(file_name, res);
                 return true;
             }
         }
     }
+
+    if (_config->_rewrite_cache_ttl_sec) _rewrite_cache->put(file_name, res);
     return false;
 }
 
@@ -1088,7 +1112,7 @@ wstring* have_content(char *file_name)
     char key[512];
     wstring *res = NULL;
     if (_config->_key_cache_ttl_sec) {
-        if (_key_cache->lookup(file_name, &res)) {
+        if (_key_cache->lookup(file_name, (void**)&res)) {
             // key-cache: for performance
             return res;
         }
@@ -1847,9 +1871,9 @@ static void push_env_table(lua_State *L, const wchar_t *script_name)
 void init_lua_support()
 {
     if (_config->_lua_enabled) {
-        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
-        log_(L"Initilizing Lua module system:\n");
-        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+        log_(L"Initiliazing Lua module system:\n");
+        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 
         // load and initialize lua modules
         L = luaL_newstate();
@@ -1968,16 +1992,16 @@ void init_lua_support()
             }
             else {
                 logu_("OK: Lua module initialized: %s\n", mfile.c_str());
-                logu_("gettop: %d\n", lua_gettop(L));
+                //logu_("gettop: %d\n", lua_gettop(L));
 
                 // add to list of loaded modules
                 _modules.push_back(m);
             }
+            log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
         }
-        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
         log_(L"Lua module system initialized.\n");
         log_(L"Active modules: %d\n", _modules.size());
-        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
     }
 }
 
@@ -1997,7 +2021,8 @@ DWORD install_func(LPVOID thread_param) {
     _file_to_lookup_size = strlen(_file_to_lookup) + 1 + 4 + 1;
 
     InitializeCriticalSection(&_cs);
-    _key_cache = new key_cache_t(&_cs, _config->_key_cache_ttl_sec);
+    _key_cache = new cache_t(&_cs, _config->_key_cache_ttl_sec);
+    _rewrite_cache = new cache_t(&_cs, _config->_rewrite_cache_ttl_sec);
 
     /*
     log_(L"debug = %d\n", _config->_debug);
@@ -2315,6 +2340,7 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
 
             if (_is_game) {
                 if (_key_cache) { delete _key_cache; }
+                if (_rewrite_cache) { delete _rewrite_cache; }
                 log_(L"DLL detaching from (%s).\n", module_filename);
                 log_(L"Unmapping from PES.\n");
 

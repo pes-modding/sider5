@@ -1847,9 +1847,8 @@ static void push_env_table(lua_State *L, const wchar_t *script_name)
 void init_lua_support()
 {
     if (_config->_lua_enabled) {
-        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
-        log_(L"Initilizing Lua module system:\n");
-        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+        log_(L"Initializing Lua module system:\n");
 
         // load and initialize lua modules
         L = luaL_newstate();
@@ -1865,6 +1864,8 @@ void init_lua_support()
         for (list<wstring>::iterator it = _config->_module_names.begin();
                 it != _config->_module_names.end();
                 it++) {
+            log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+
             // Use Win32 API to read the script into a buffer:
             // we do not want any nasty surprises with filename encodings
             wstring script_file(sider_dir);
@@ -1974,10 +1975,10 @@ void init_lua_support()
                 _modules.push_back(m);
             }
         }
-        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
         log_(L"Lua module system initialized.\n");
         log_(L"Active modules: %d\n", _modules.size());
-        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
     }
 }
 

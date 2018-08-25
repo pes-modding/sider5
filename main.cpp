@@ -153,5 +153,6 @@ int init()
     start_log_(L"Sider: version %s\n", version.c_str());
     setHook();
     log_(L"Main: Init DONE\n");
+    close_log_();
 	return 0;
 }

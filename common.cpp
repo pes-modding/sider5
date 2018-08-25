@@ -4,43 +4,84 @@
 #include <string>
 
 #include "common.h"
+#include "utf8.h"
 
 extern wchar_t dll_log[MAX_PATH];
+static FILE *file = NULL;
+static CRITICAL_SECTION _log_cs;
+
+#define LOG_BUF_LEN 0x200
 
 __declspec(dllexport) void log_(const wchar_t *format, ...)
 {
-    FILE *file = _wfopen(dll_log, L"a+, ccs=UTF-8");
+    size_t count = LOG_BUF_LEN;
+    wchar_t buffer[LOG_BUF_LEN];
+    EnterCriticalSection(&_log_cs);
     if (file) {
         va_list params;
         va_start(params, format);
-        vfwprintf(file, format, params);
+        vswprintf_s(buffer, count, format, params);
         va_end(params);
-        fclose(file);
+        BYTE *encoded = Utf8::unicodeToUtf8(buffer);
+        fwrite(encoded, strlen((char*)encoded), 1, file);
+        Utf8:free(encoded);
+        fflush(file);
     }
+    LeaveCriticalSection(&_log_cs);
 }
 
 __declspec(dllexport) void logu_(const char *format, ...)
 {
-    FILE *file = _wfopen(dll_log, L"a+");
+    EnterCriticalSection(&_log_cs);
     if (file) {
         va_list params;
         va_start(params, format);
         vfprintf(file, format, params);
         va_end(params);
-        fclose(file);
+        fflush(file);
     }
+    LeaveCriticalSection(&_log_cs);
 }
 
 __declspec(dllexport) void start_log_(const wchar_t *format, ...)
 {
-    FILE *file = _wfopen(dll_log, L"wt, ccs=UTF-8");
+    InitializeCriticalSection(&_log_cs);
+    EnterCriticalSection(&_log_cs);
+    file = _wfopen(dll_log, L"wt");
     if (file) {
         va_list params;
         va_start(params, format);
         vfwprintf(file, format, params);
         va_end(params);
+        fflush(file);
+    }
+    LeaveCriticalSection(&_log_cs);
+}
+
+__declspec(dllexport) void open_log_(const wchar_t *format, ...)
+{
+    InitializeCriticalSection(&_log_cs);
+    EnterCriticalSection(&_log_cs);
+    file = _wfopen(dll_log, L"a+");
+    if (file) {
+        va_list params;
+        va_start(params, format);
+        vfwprintf(file, format, params);
+        va_end(params);
+        fflush(file);
+    }
+    LeaveCriticalSection(&_log_cs);
+}
+
+__declspec(dllexport) void close_log_()
+{
+    EnterCriticalSection(&_log_cs);
+    if (file) {
+        fflush(file);
         fclose(file);
     }
+    LeaveCriticalSection(&_log_cs);
+    DeleteCriticalSection(&_log_cs);
 }
 
 BYTE* get_target_addr(BYTE* call_location)

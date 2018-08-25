@@ -26,8 +26,8 @@
 
 #define smaller(a,b) ((a<b)?a:b)
 
-// "sdr4" magic string
-#define MAGIC 0x34726473
+// "sdr5" magic string
+#define MAGIC 0x35726473
 
 //#define KNOWN_FILENAME "common\\etc\\pesdb\\Coach.bin"
 #define KNOWN_FILENAME "Fox\\Scripts\\Gr\\init.lua"
@@ -1411,7 +1411,7 @@ void sider_lookup_file(LONGLONG p1, LONGLONG p2, char *filename)
 
         // trick: pick a filename that we know exists
         // put our filename after it, separated by MAGIC marker
-        char temp[0x100];
+        char temp[0x200];
         memcpy(temp, filename, len+1);
         memcpy(filename, _file_to_lookup, _file_to_lookup_size);
         memcpy(filename + _file_to_lookup_size, temp, len+1);
@@ -1420,6 +1420,8 @@ void sider_lookup_file(LONGLONG p1, LONGLONG p2, char *filename)
         // not found. But still mark it with magic
         // so that we do not search again
         *(DWORD*)p = MAGIC;
+        *(p+4) = '\0';
+        *(p+5) = '\0';
     }
 }
 
@@ -1586,7 +1588,7 @@ void hook_indirect_call(BYTE *loc, BYTE *p) {
     if (VirtualProtect(addr_loc, 8, newProtection, &protection)) {
         BYTE** v = (BYTE**)addr_loc;
         *v = p;
-        log_(L"hook_indirect_call: hooked at %p\n", loc);
+        log_(L"hook_indirect_call: hooked at %p (target: %p)\n", loc, p);
     }
 }
 
@@ -1603,7 +1605,24 @@ void hook_call(BYTE *loc, BYTE *p, size_t nops) {
         if (nops) {
             memset(loc+12, '\x90', nops);  // nop ;one of more nops for padding
         }
-        log_(L"hook_call: hooked at %p\n", loc);
+        log_(L"hook_call: hooked at %p (target: %p)\n", loc, p);
+    }
+}
+
+void hook_call_rcx(BYTE *loc, BYTE *p, size_t nops) {
+    if (!loc) {
+        return;
+    }
+    DWORD protection = 0;
+    DWORD newProtection = PAGE_EXECUTE_READWRITE;
+    if (VirtualProtect(loc, 16, newProtection, &protection)) {
+        memcpy(loc, "\x48\xb9", 2);
+        memcpy(loc+2, &p, sizeof(BYTE*));  // mov rcx,<target_addr>
+        memcpy(loc+10, "\xff\xd1", 2);      // call rcx
+        if (nops) {
+            memset(loc+12, '\x90', nops);  // nop ;one of more nops for padding
+        }
+        log_(L"hook_call: hooked at %p (target: %p)\n", loc, p);
     }
 }
 
@@ -1618,7 +1637,7 @@ void hook_call_with_tail(BYTE *loc, BYTE *p, BYTE *tail, size_t tail_size) {
         memcpy(loc+2, &p, sizeof(BYTE*));  // mov rax,<target_addr>
         memcpy(loc+10, "\xff\xd0", 2);      // call rax
         memcpy(loc+12, tail, tail_size);  // tail code
-        log_(L"hook_call_with_tail: hooked at %p\n", loc);
+        log_(L"hook_call_with_tail: hooked at %p (target: %p)\n", loc, p);
     }
 }
 
@@ -2185,18 +2204,21 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
                 hook_call(_config->_hp_at_get_size, (BYTE*)sider_get_size_hk, 0);
                 hook_call(_config->_hp_at_extend_cpk, (BYTE*)sider_extend_cpk_hk, 1);
                 hook_call(_config->_hp_at_mem_copy, (BYTE*)sider_mem_copy_hk, 0);
-                hook_call(_config->_hp_at_lookup_file, (BYTE*)sider_lookup_file_hk, 3);
+                hook_call_rcx(_config->_hp_at_lookup_file, (BYTE*)sider_lookup_file_hk, 3);
             }
-            //log_(L"sider_set_team_id: %p\n", sider_set_team_id_hk);
-            //log_(L"sider_set_settings: %p\n", sider_set_settings_hk);
-            //log_(L"sider_trophy_check: %p\n", sider_trophy_check_hk);
-            //log_(L"sider_context_reset: %p\n", sider_context_reset_hk);
 
-            hook_call_with_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
-                (BYTE*)pattern_set_team_id_tail, sizeof(pattern_set_team_id_tail)-1);
-            hook_call(_config->_hp_at_set_settings, (BYTE*)sider_set_settings_hk, 1);
-            hook_call(_config->_hp_at_trophy_check, (BYTE*)sider_trophy_check_hk, 0);
-            hook_call(_config->_hp_at_context_reset, (BYTE*)sider_context_reset_hk, 6);
+            if (_config->_lua_enabled) {
+                //log_(L"sider_set_team_id: %p\n", sider_set_team_id_hk);
+                //log_(L"sider_set_settings: %p\n", sider_set_settings_hk);
+                //log_(L"sider_trophy_check: %p\n", sider_trophy_check_hk);
+                //log_(L"sider_context_reset: %p\n", sider_context_reset_hk);
+
+                hook_call_with_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
+                    (BYTE*)pattern_set_team_id_tail, sizeof(pattern_set_team_id_tail)-1);
+                hook_call(_config->_hp_at_set_settings, (BYTE*)sider_set_settings_hk, 1);
+                hook_call(_config->_hp_at_trophy_check, (BYTE*)sider_trophy_check_hk, 0);
+                hook_call(_config->_hp_at_context_reset, (BYTE*)sider_context_reset_hk, 6);
+            }
 
             // hooks and patches
             patch_at_location(_config->_hp_at_set_min_time, "\x90\x90\x90\x90\x90\x90\x90", 7);
@@ -2318,7 +2340,7 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
 
                 wstring version;
                 get_module_version(hDLL, version);
-                log_(L"============================\n");
+                open_log_(L"============================\n");
                 log_(L"Sider DLL: version %s\n", version.c_str());
                 log_(L"Filename match: %s\n", match->c_str());
 
@@ -2356,6 +2378,7 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
                         log_(L"Posted message for sider.exe to quit\n");
                     }
                 }
+                close_log_();
             }
             break;
 

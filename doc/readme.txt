@@ -1,7 +1,7 @@
 Sider 5 for Pro Evolution Soccer 2019
 =====================================
 Copyright (C) 2019 juce
-Version 5.0.0
+Version 5.0.1
 
 
 
@@ -69,5 +69,6 @@ You can set any time between 1 and 255 minutes, but don't go crazy.
 
 CREDITS:
 --------
-Game research and programming: juce
+Game research and programming: juce, nesa24
+Example ball: barcerojas and digitalfoxx
 

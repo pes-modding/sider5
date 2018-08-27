@@ -286,6 +286,10 @@ public:
 cache_t *_key_cache(NULL);
 cache_t *_rewrite_cache(NULL);
 
+// optimization: count for all registered handlers of "livecpk_rewrite" event
+// if it is 0, then no need to call do_rewrite
+int _rewrite_count(0);
+
 struct module_t {
     lookup_cache_t *cache;
     lua_State* L;
@@ -1080,6 +1084,7 @@ bool do_rewrite(char *file_name)
 {
     char key[512];
     char *res = NULL;
+
     if (_config->_rewrite_cache_ttl_sec) {
         if (_rewrite_cache->lookup(file_name, (void**)&res)) {
             // rewrite-cache: for performance
@@ -1190,7 +1195,7 @@ void sider_get_size(char *filename, struct FILE_INFO *fi)
     DBG(4) logu_("get_size:: tailname: %s\n", fname);
 
     wstring *fn;
-    if (_config->_lua_enabled) do_rewrite(fname);
+    if (_config->_lua_enabled && _rewrite_count > 0) do_rewrite(fname);
     fn = (_config->_lua_enabled) ? have_content(fname) : NULL;
     fn = (fn) ? fn : have_live_file(fname);
     if (fn != NULL) {
@@ -1234,7 +1239,7 @@ BOOL sider_read_file(
 
     //log_(L"rs (R12) = %p\n", rs);
     if (rs) {
-        if (_config->_lua_enabled) do_rewrite(rs->filename);
+        if (_config->_lua_enabled && _rewrite_count > 0) do_rewrite(rs->filename);
         DBG(1) logu_("read_file:: rs->filesize: %llx, rs->offset: %llx, rs->filename: %s\n",
             rs->filesize, rs->offset.full, rs->filename);
 
@@ -1324,7 +1329,7 @@ void sider_mem_copy(BYTE *dst, LONGLONG dst_len, BYTE *src, LONGLONG src_len, st
     memcpy_s(dst, dst_len, src, src_len);
 
     if (rs) {
-        if (_config->_lua_enabled) do_rewrite(rs->filename);
+        if (_config->_lua_enabled && _rewrite_count > 0) do_rewrite(rs->filename);
         DBG(1) logu_("mem_copy:: rs->filesize: %llx, rs->offset: %llx, rs->filename: %s\n",
             rs->filesize, rs->offset.full, rs->filename);
 
@@ -1398,7 +1403,7 @@ void sider_lookup_file(LONGLONG p1, LONGLONG p2, char *filename)
     //DBG(8) logu_("lookup_file:: looking for: %s\n", filename);
 
     wstring *fn;
-    if (_config->_lua_enabled) {
+    if (_config->_lua_enabled && _rewrite_count > 0) {
         if (do_rewrite(filename)) {
             len = strlen(filename);
             p = filename + len + 1;
@@ -1670,6 +1675,7 @@ static int sider_context_register(lua_State *L)
         lua_pushvalue(L, -1);
         lua_xmove(L, _curr_m->L, 1);
         _curr_m->evt_lcpk_rewrite = lua_gettop(_curr_m->L);
+        _rewrite_count++;
         logu_("Registered for \"%s\" event\n", event_key);
     }
     else if (strcmp(event_key, "set_teams")==0) {

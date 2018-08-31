@@ -33,6 +33,7 @@ sider.res: sider.rc
 sider_main.res: sider_main.rc sider.ico
 	$(RC) -r -fo sider_main.res sider_main.rc
 
+kmp.obj: kmp.cpp kmp.h
 common.obj: common.cpp common.h
 imageutil.obj: imageutil.cpp imageutil.h
 version.obj: version.cpp
@@ -49,8 +50,8 @@ util.obj: util.asm
     ml64 /c util.asm
 
 sider.obj: sider.cpp sider.h patterns.h common.h imageutil.h
-sider.dll: sider.obj util.obj imageutil.obj version.obj common.obj memlib.obj sider.res $(LUALIBPATH)\$(LUALIB)
-	$(LINK) $(LFLAGS) /out:sider.dll /DLL sider.obj util.obj imageutil.obj version.obj common.obj memlib.obj sider.res /LIBPATH:$(LUALIBPATH) $(LIBS) $(LUALIB) /LIBPATH:"$(LIB)"
+sider.dll: sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj sider.res $(LUALIBPATH)\$(LUALIB)
+	$(LINK) $(LFLAGS) /out:sider.dll /DLL sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj sider.res /LIBPATH:$(LUALIBPATH) $(LIBS) $(LUALIB) /LIBPATH:"$(LIB)"
 
 sider.exe: main.obj sider.dll sider_main.res $(LUADLL)
 	$(LINK) $(LFLAGS) /out:sider.exe main.obj sider_main.res $(LIBS) sider.lib /LIBPATH:"$(LIB)"

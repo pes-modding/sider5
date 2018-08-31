@@ -5,6 +5,7 @@
 
 #include "common.h"
 #include "utf8.h"
+#include "kmp.h"
 
 extern wchar_t dll_log[MAX_PATH];
 static FILE *file = NULL;
@@ -126,6 +127,8 @@ BYTE* find_code_frag(BYTE *base, LONGLONG max_offset, BYTE *frag, size_t frag_le
     BYTE *p = base;
     BYTE *max_p = base + max_offset;
     //logu_("searching range: %p : %p for %lu bytes\n", p, max_p, frag_len);
+    return (BYTE*)kmp_search((char*)frag, frag_len, (char*)p, (char*)max_p);
+    /*
     while (p < max_p && memcmp(p, frag, frag_len)!=0) {
         p += 1;
     }
@@ -133,6 +136,7 @@ BYTE* find_code_frag(BYTE *base, LONGLONG max_offset, BYTE *frag, size_t frag_le
         return p;
     }
     return NULL;
+    */
 }
 
 void patch_at_location(BYTE *addr, void *patch, size_t patch_len)

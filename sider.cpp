@@ -2168,10 +2168,10 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag_len[2] = sizeof(lcpk_pattern_at_write_cpk_filesize)-1;
     frag_len[3] = sizeof(lcpk_pattern_at_mem_copy)-1;
     frag_len[4] = sizeof(lcpk_pattern_at_lookup_file)-1;
-    frag_len[5] = sizeof(pattern_set_team_id)-1;
-    frag_len[6] = sizeof(pattern_set_settings)-1;
-    frag_len[7] = sizeof(pattern_trophy_check)-1;
-    frag_len[8] = sizeof(pattern_context_reset)-1;
+    frag_len[5] = 0; //sizeof(pattern_set_team_id)-1;
+    frag_len[6] = 0; //sizeof(pattern_set_settings)-1;
+    frag_len[7] = 0; //sizeof(pattern_trophy_check)-1;
+    frag_len[8] = 0; //sizeof(pattern_context_reset)-1;
     frag_len[9] = sizeof(pattern_set_min_time)-1;
     frag_len[10] = sizeof(pattern_set_max_time)-1;
     frag_len[11] = sizeof(pattern_set_minutes)-1;
@@ -2206,6 +2206,14 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     addrs[12] = &_config->_hp_at_sider;
 
     for (int j=0; j<NUM_PATTERNS; j++) {
+        if (frag_len[j]==0) {
+            // empty frag
+            continue;
+        }
+        if (*(addrs[j])) {
+            // already found
+            continue;
+        }
         BYTE *p = find_code_frag(base, h->Misc.VirtualSize,
             frag[j], frag_len[j]);
         if (!p) {

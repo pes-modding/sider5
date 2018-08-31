@@ -201,6 +201,10 @@ extern "C" void sider_context_reset();
 
 extern "C" void sider_context_reset_hk();
 
+extern "C" void sider_free_select_hk();
+
+extern "C" void sider_free_select(BYTE *controller_restriction);
+
 static DWORD dwThreadId;
 static DWORD hookingThreadId = 0;
 static HMODULE myHDLL;
@@ -354,6 +358,7 @@ public:
     list<wstring> _module_names;
     bool _close_sider_on_exit;
     bool _start_minimized;
+    bool _free_side_select;
     int _num_minutes;
     BYTE *_hp_at_read_file;
     BYTE *_hp_at_get_size;
@@ -368,6 +373,7 @@ public:
     BYTE *_hp_at_set_min_time;
     BYTE *_hp_at_set_max_time;
     BYTE *_hp_at_set_minutes;
+    BYTE *_hp_at_sider;
 
     ~config_t() {}
     config_t(const wstring& section_name, const wchar_t* config_ini) :
@@ -379,6 +385,7 @@ public:
                  _luajit_extensions_enabled(false),
                  _close_sider_on_exit(false),
                  _start_minimized(false),
+                 _free_side_select(false),
                  _key_cache_ttl_sec(10),
                  _rewrite_cache_ttl_sec(10),
                  _hp_at_read_file(NULL),
@@ -393,7 +400,8 @@ public:
                  _hp_at_set_min_time(NULL),
                  _hp_at_set_max_time(NULL),
                  _hp_at_set_minutes(NULL),
-                 _num_minutes(5)
+                 _hp_at_sider(NULL),
+                 _num_minutes(0)
     {
         wchar_t settings[32767];
         RtlZeroMemory(settings, sizeof(settings));
@@ -456,6 +464,10 @@ public:
 
         _start_minimized = GetPrivateProfileInt(_section_name.c_str(),
             L"start.minimized", _start_minimized,
+            config_ini);
+
+        _free_side_select = GetPrivateProfileInt(_section_name.c_str(),
+            L"free.side.select", _free_side_select,
             config_ini);
 
         _livecpk_enabled = GetPrivateProfileInt(_section_name.c_str(),
@@ -1565,6 +1577,11 @@ void sider_context_reset()
     logu_("context reset\n");
 }
 
+void sider_free_select(BYTE *controller_restriction)
+{
+    *controller_restriction = 0;
+}
+
 BYTE* get_target_location(BYTE *call_location)
 {
     if (call_location) {
@@ -1627,7 +1644,7 @@ void hook_call_rcx(BYTE *loc, BYTE *p, size_t nops) {
         if (nops) {
             memset(loc+12, '\x90', nops);  // nop ;one of more nops for padding
         }
-        log_(L"hook_call: hooked at %p (target: %p)\n", loc, p);
+        log_(L"hook_call_rcx: hooked at %p (target: %p)\n", loc, p);
     }
 }
 
@@ -2050,7 +2067,6 @@ DWORD install_func(LPVOID thread_param) {
     _key_cache = new cache_t(&_cs, _config->_key_cache_ttl_sec);
     _rewrite_cache = new cache_t(&_cs, _config->_rewrite_cache_ttl_sec);
 
-    /*
     log_(L"debug = %d\n", _config->_debug);
     //if (_config->_game_speed) {
     //    log_(L"game.speed = %0.3f\n", *(_config->_game_speed));
@@ -2061,8 +2077,8 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"luajit.ext.enabled = %d\n", _config->_luajit_extensions_enabled);
     //log_(L"address-cache.enabled = %d\n", (int)(!_config->_ac_off));
     log_(L"key-cache.ttl-sec = %d\n", _config->_key_cache_ttl_sec);
-    */
     log_(L"start.minimized = %d\n", _config->_start_minimized);
+    log_(L"free.side.select = %d\n", _config->_free_side_select);
     log_(L"close.on.exit = %d\n", _config->_close_sider_on_exit);
     log_(L"match.minutes = %d\n", _config->_num_minutes);
 
@@ -2110,14 +2126,16 @@ bool all_found(config_t *cfg) {
             //cfg->_hp_at_context_reset > 0 &&
             cfg->_hp_at_set_min_time > 0 &&
             cfg->_hp_at_set_max_time > 0 &&
-            cfg->_hp_at_set_minutes > 0
+            cfg->_hp_at_set_minutes > 0 &&
+            cfg->_hp_at_sider > 0
         );
     }
     else {
         return (
             cfg->_hp_at_set_min_time > 0 &&
             cfg->_hp_at_set_max_time > 0 &&
-            cfg->_hp_at_set_minutes > 0
+            cfg->_hp_at_set_minutes > 0 &&
+            cfg->_hp_at_sider > 0
         );
     }
 }
@@ -2129,170 +2147,110 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
         base, base + h->Misc.VirtualSize, h->Misc.VirtualSize);
     bool result(false);
 
-#define NUM_PATTERNS 12
-    if (1) {//_config->_livecpk_enabled) {
-        BYTE *frag[NUM_PATTERNS];
-        frag[0] = lcpk_pattern_at_read_file;
-        frag[1] = lcpk_pattern_at_get_size;
-        frag[2] = lcpk_pattern_at_write_cpk_filesize;
-        frag[3] = lcpk_pattern_at_mem_copy;
-        frag[4] = lcpk_pattern_at_lookup_file;
-        frag[5] = pattern_set_team_id;
-        frag[6] = pattern_set_settings;
-        frag[7] = pattern_trophy_check;
-        frag[8] = pattern_context_reset;
-        frag[9] = pattern_set_min_time;
-        frag[10] = pattern_set_max_time;
-        frag[11] = pattern_set_minutes;
-        size_t frag_len[NUM_PATTERNS];
-        frag_len[0] = sizeof(lcpk_pattern_at_read_file)-1;
-        frag_len[1] = sizeof(lcpk_pattern_at_get_size)-1;
-        frag_len[2] = sizeof(lcpk_pattern_at_write_cpk_filesize)-1;
-        frag_len[3] = sizeof(lcpk_pattern_at_mem_copy)-1;
-        frag_len[4] = sizeof(lcpk_pattern_at_lookup_file)-1;
-        frag_len[5] = sizeof(pattern_set_team_id)-1;
-        frag_len[6] = sizeof(pattern_set_settings)-1;
-        frag_len[7] = sizeof(pattern_trophy_check)-1;
-        frag_len[8] = sizeof(pattern_context_reset)-1;
-        frag_len[9] = sizeof(pattern_set_min_time)-1;
-        frag_len[10] = sizeof(pattern_set_max_time)-1;
-        frag_len[11] = sizeof(pattern_set_minutes)-1;
-        int offs[NUM_PATTERNS];
-        offs[0] = lcpk_offs_at_read_file;
-        offs[1] = lcpk_offs_at_get_size;
-        offs[2] = lcpk_offs_at_write_cpk_filesize;
-        offs[3] = lcpk_offs_at_mem_copy;
-        offs[4] = lcpk_offs_at_lookup_file;
-        offs[5] = offs_set_team_id;
-        offs[6] = offs_set_settings;
-        offs[7] = offs_trophy_check;
-        offs[8] = offs_context_reset;
-        offs[9] = offs_set_min_time;
-        offs[10] = offs_set_max_time;
-        offs[11] = offs_set_minutes;
-        BYTE **addrs[NUM_PATTERNS];
-        addrs[0] = &_config->_hp_at_read_file;
-        addrs[1] = &_config->_hp_at_get_size;
-        addrs[2] = &_config->_hp_at_extend_cpk;
-        addrs[3] = &_config->_hp_at_mem_copy;
-        addrs[4] = &_config->_hp_at_lookup_file;
-        addrs[5] = &_config->_hp_at_set_team_id;
-        addrs[6] = &_config->_hp_at_set_settings;
-        addrs[7] = &_config->_hp_at_trophy_check;
-        addrs[8] = &_config->_hp_at_context_reset;
-        addrs[9] = &_config->_hp_at_set_min_time;
-        addrs[10] = &_config->_hp_at_set_max_time;
-        addrs[11] = &_config->_hp_at_set_minutes;
+#define NUM_PATTERNS 13
+    BYTE *frag[NUM_PATTERNS];
+    frag[0] = lcpk_pattern_at_read_file;
+    frag[1] = lcpk_pattern_at_get_size;
+    frag[2] = lcpk_pattern_at_write_cpk_filesize;
+    frag[3] = lcpk_pattern_at_mem_copy;
+    frag[4] = lcpk_pattern_at_lookup_file;
+    frag[5] = pattern_set_team_id;
+    frag[6] = pattern_set_settings;
+    frag[7] = pattern_trophy_check;
+    frag[8] = pattern_context_reset;
+    frag[9] = pattern_set_min_time;
+    frag[10] = pattern_set_max_time;
+    frag[11] = pattern_set_minutes;
+    frag[12] = pattern_sider;
+    size_t frag_len[NUM_PATTERNS];
+    frag_len[0] = sizeof(lcpk_pattern_at_read_file)-1;
+    frag_len[1] = sizeof(lcpk_pattern_at_get_size)-1;
+    frag_len[2] = sizeof(lcpk_pattern_at_write_cpk_filesize)-1;
+    frag_len[3] = sizeof(lcpk_pattern_at_mem_copy)-1;
+    frag_len[4] = sizeof(lcpk_pattern_at_lookup_file)-1;
+    frag_len[5] = sizeof(pattern_set_team_id)-1;
+    frag_len[6] = sizeof(pattern_set_settings)-1;
+    frag_len[7] = sizeof(pattern_trophy_check)-1;
+    frag_len[8] = sizeof(pattern_context_reset)-1;
+    frag_len[9] = sizeof(pattern_set_min_time)-1;
+    frag_len[10] = sizeof(pattern_set_max_time)-1;
+    frag_len[11] = sizeof(pattern_set_minutes)-1;
+    frag_len[12] = sizeof(pattern_sider)-1;
+    int offs[NUM_PATTERNS];
+    offs[0] = lcpk_offs_at_read_file;
+    offs[1] = lcpk_offs_at_get_size;
+    offs[2] = lcpk_offs_at_write_cpk_filesize;
+    offs[3] = lcpk_offs_at_mem_copy;
+    offs[4] = lcpk_offs_at_lookup_file;
+    offs[5] = offs_set_team_id;
+    offs[6] = offs_set_settings;
+    offs[7] = offs_trophy_check;
+    offs[8] = offs_context_reset;
+    offs[9] = offs_set_min_time;
+    offs[10] = offs_set_max_time;
+    offs[11] = offs_set_minutes;
+    offs[12] = offs_sider;
+    BYTE **addrs[NUM_PATTERNS];
+    addrs[0] = &_config->_hp_at_read_file;
+    addrs[1] = &_config->_hp_at_get_size;
+    addrs[2] = &_config->_hp_at_extend_cpk;
+    addrs[3] = &_config->_hp_at_mem_copy;
+    addrs[4] = &_config->_hp_at_lookup_file;
+    addrs[5] = &_config->_hp_at_set_team_id;
+    addrs[6] = &_config->_hp_at_set_settings;
+    addrs[7] = &_config->_hp_at_trophy_check;
+    addrs[8] = &_config->_hp_at_context_reset;
+    addrs[9] = &_config->_hp_at_set_min_time;
+    addrs[10] = &_config->_hp_at_set_max_time;
+    addrs[11] = &_config->_hp_at_set_minutes;
+    addrs[12] = &_config->_hp_at_sider;
 
-        int j = (_config->_livecpk_enabled) ? 0 : 9;
-        for (; j<NUM_PATTERNS; j++) {
-            BYTE *p = find_code_frag(base, h->Misc.VirtualSize,
-                frag[j], frag_len[j]);
-            if (!p) {
-                continue;
-            }
-            log_(L"Found pattern %i of %i\n", j+1, NUM_PATTERNS);
-            *(addrs[j]) = p + offs[j];
+    for (int j=0; j<NUM_PATTERNS; j++) {
+        BYTE *p = find_code_frag(base, h->Misc.VirtualSize,
+            frag[j], frag_len[j]);
+        if (!p) {
+            continue;
         }
-
-        if (all_found(_config)) {
-            result = true;
-
-            // hooks
-            if (_config->_livecpk_enabled) {
-                log_(L"sider_read_file_hk: %p\n", sider_read_file_hk);
-                log_(L"sider_get_size_hk: %p\n", sider_get_size_hk);
-                log_(L"sider_extend_cpk_hk: %p\n", sider_extend_cpk_hk);
-                log_(L"sider_mem_copy_hk: %p\n", sider_mem_copy_hk);
-                log_(L"sider_lookup_file: %p\n", sider_lookup_file_hk);
-
-                hook_indirect_call(_config->_hp_at_read_file, (BYTE*)sider_read_file_hk);
-                hook_call(_config->_hp_at_get_size, (BYTE*)sider_get_size_hk, 0);
-                hook_call(_config->_hp_at_extend_cpk, (BYTE*)sider_extend_cpk_hk, 1);
-                hook_call(_config->_hp_at_mem_copy, (BYTE*)sider_mem_copy_hk, 0);
-                hook_call_rcx(_config->_hp_at_lookup_file, (BYTE*)sider_lookup_file_hk, 3);
-            }
-
-            if (_config->_lua_enabled) {
-                //log_(L"sider_set_team_id: %p\n", sider_set_team_id_hk);
-                //log_(L"sider_set_settings: %p\n", sider_set_settings_hk);
-                //log_(L"sider_trophy_check: %p\n", sider_trophy_check_hk);
-                //log_(L"sider_context_reset: %p\n", sider_context_reset_hk);
-
-                hook_call_with_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
-                    (BYTE*)pattern_set_team_id_tail, sizeof(pattern_set_team_id_tail)-1);
-                hook_call(_config->_hp_at_set_settings, (BYTE*)sider_set_settings_hk, 1);
-                hook_call(_config->_hp_at_trophy_check, (BYTE*)sider_trophy_check_hk, 0);
-                hook_call(_config->_hp_at_context_reset, (BYTE*)sider_context_reset_hk, 6);
-            }
-
-            // hooks and patches
-            patch_at_location(_config->_hp_at_set_min_time, "\x90\x90\x90\x90\x90\x90\x90", 7);
-            patch_at_location(_config->_hp_at_set_max_time, "\x90\x90\x90\x90\x90\x90\x90", 7);
-
-            if (_config->_num_minutes < 1) {
-                _config->_num_minutes = 1;
-            }
-            else if (_config->_num_minutes > 255) {
-                _config->_num_minutes = 255;
-            }
-            logu_("Setting match minutes to: %d\n", _config->_num_minutes);
-            patch_set_minutes[3] = _config->_num_minutes;
-            patch_at_location(_config->_hp_at_set_minutes, patch_set_minutes, sizeof(patch_set_minutes)-1);
-        }
+        log_(L"Found pattern %i of %i\n", j+1, NUM_PATTERNS);
+        *(addrs[j]) = p + offs[j];
     }
 
-    return result;
-}
+    if (all_found(_config)) {
+        result = true;
 
-bool all_found_demo(config_t *cfg) {
-    return (
-        cfg->_hp_at_set_min_time > 0 &&
-        cfg->_hp_at_set_max_time > 0 &&
-        cfg->_hp_at_set_minutes > 0
-    );
-}
+        // hooks
+        if (_config->_livecpk_enabled) {
+            log_(L"sider_read_file_hk: %p\n", sider_read_file_hk);
+            log_(L"sider_get_size_hk: %p\n", sider_get_size_hk);
+            log_(L"sider_extend_cpk_hk: %p\n", sider_extend_cpk_hk);
+            log_(L"sider_mem_copy_hk: %p\n", sider_mem_copy_hk);
+            log_(L"sider_lookup_file: %p\n", sider_lookup_file_hk);
 
-bool _install_func_demo(IMAGE_SECTION_HEADER *h) {
-    BYTE* base = (BYTE*)GetModuleHandle(NULL);
-    base += h->VirtualAddress;
-    log_(L"Searching range: %p : %p (size: %p)\n",
-        base, base + h->Misc.VirtualSize, h->Misc.VirtualSize);
-    bool result(false);
-
-//#define NUM_PATTERNS 3
-    if (1) {//_config->_livecpk_enabled) {
-        BYTE *frag[NUM_PATTERNS];
-        frag[0] = pattern_set_min_time;
-        frag[1] = pattern_set_max_time;
-        frag[2] = pattern_set_minutes;
-        size_t frag_len[NUM_PATTERNS];
-        frag_len[0] = sizeof(pattern_set_min_time)-1;
-        frag_len[1] = sizeof(pattern_set_max_time)-1;
-        frag_len[2] = sizeof(pattern_set_minutes)-1;
-        int offs[NUM_PATTERNS];
-        offs[0] = offs_set_min_time;
-        offs[1] = offs_set_max_time;
-        offs[2] = offs_set_minutes;
-        BYTE **addrs[NUM_PATTERNS];
-        addrs[0] = &_config->_hp_at_set_min_time;
-        addrs[1] = &_config->_hp_at_set_max_time;
-        addrs[2] = &_config->_hp_at_set_minutes;
-
-        for (int j=0; j<NUM_PATTERNS; j++) {
-            BYTE *p = find_code_frag(base, h->Misc.VirtualSize,
-                frag[j], frag_len[j]);
-            if (!p) {
-                continue;
-            }
-            log_(L"Found pattern %i of %i\n", j+1, NUM_PATTERNS);
-            *(addrs[j]) = p + offs[j];
+            hook_indirect_call(_config->_hp_at_read_file, (BYTE*)sider_read_file_hk);
+            hook_call(_config->_hp_at_get_size, (BYTE*)sider_get_size_hk, 0);
+            hook_call(_config->_hp_at_extend_cpk, (BYTE*)sider_extend_cpk_hk, 1);
+            hook_call(_config->_hp_at_mem_copy, (BYTE*)sider_mem_copy_hk, 0);
+            hook_call_rcx(_config->_hp_at_lookup_file, (BYTE*)sider_lookup_file_hk, 3);
         }
 
-        if (all_found(_config)) {
-            result = true;
+        if (_config->_lua_enabled) {
+            //log_(L"sider_set_team_id: %p\n", sider_set_team_id_hk);
+            //log_(L"sider_set_settings: %p\n", sider_set_settings_hk);
+            //log_(L"sider_trophy_check: %p\n", sider_trophy_check_hk);
+            //log_(L"sider_context_reset: %p\n", sider_context_reset_hk);
 
-            // hooks and patches
+            hook_call_with_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
+                (BYTE*)pattern_set_team_id_tail, sizeof(pattern_set_team_id_tail)-1);
+            hook_call(_config->_hp_at_set_settings, (BYTE*)sider_set_settings_hk, 1);
+            hook_call(_config->_hp_at_trophy_check, (BYTE*)sider_trophy_check_hk, 0);
+            hook_call(_config->_hp_at_context_reset, (BYTE*)sider_context_reset_hk, 6);
+        }
+
+        if (_config->_free_side_select) {
+            hook_call_rcx(_config->_hp_at_sider, (BYTE*)sider_free_select_hk, 0);
+        }
+
+        if (_config->_num_minutes != 0) {
             patch_at_location(_config->_hp_at_set_min_time, "\x90\x90\x90\x90\x90\x90\x90", 7);
             patch_at_location(_config->_hp_at_set_max_time, "\x90\x90\x90\x90\x90\x90\x90", 7);
 

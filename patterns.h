@@ -149,4 +149,11 @@ static BYTE patch_set_minutes[6] =
     "\xc6\x41\x1c\x0a"
     "\xc3";
 
+// controller restrictions ("sider")
+
+static BYTE pattern_sider[13] =
+    "\xf2\x0f\x10\x00"
+    "\xf2\x0f\x11\x83\xa4\x00\x00\x00";
+static int offs_sider = 0;
+
 #endif

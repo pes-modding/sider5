@@ -12,9 +12,13 @@ local m = {}
 local hex = memory.tohexstring
 
 local game_info = {
-    camera_range_zoom   = { 0x1beba54, "f", 4},   --> default: 19.05
-    camera_range_height = { 0x1beba58, "f", 4},   --> default: 0.3
-    camera_range_angle  = { 0x1beba70, "f", 4},   --> default: 1.35
+    --camera_range_zoom   = { 0x1beba54, "f", 4},   --> default: 19.05
+    --camera_range_height = { 0x1beba58, "f", 4},   --> default: 0.3
+    --camera_range_angle  = { 0x1beba70, "f", 4},   --> default: 1.35
+
+    camera_range_zoom   = { 0x21f7ef4, "f", 4},   --> default: 19.05
+    camera_range_height = { 0x21f7ef8, "f", 4},   --> default: 0.3
+    camera_range_angle  = { 0x21f7f10, "f", 4},   --> default: 1.35
 }
 
 local function load_ini(ctx, filename)

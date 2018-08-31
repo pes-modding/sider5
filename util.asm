@@ -14,6 +14,7 @@ extern sider_set_team_id:proc
 extern sider_set_settings:proc
 extern sider_trophy_check:proc
 extern sider_context_reset:proc
+extern sider_free_select:proc
 
 .code
 sider_read_file_hk proc
@@ -204,5 +205,19 @@ sider_context_reset_hk proc
         ret
 
 sider_context_reset_hk endp
+
+sider_free_select_hk proc
+
+        push    rax
+        sub     rsp,20h
+        movsd   xmm0,qword ptr [rax]
+        movsd   qword ptr [rbx+0a4h],xmm0
+        lea     rcx,[rbx+0a4h]
+        call    sider_free_select
+        add     rsp,20h
+        pop     rax
+        ret
+
+sider_free_select_hk endp
 
 end

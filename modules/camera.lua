@@ -1,7 +1,7 @@
 --[[
 =========================
 
-camera module v1.0
+camera module v1.1
 Game research by: nesa24
 Requires: sider.dll 5.0.1
 
@@ -12,13 +12,9 @@ local m = {}
 local hex = memory.tohexstring
 
 local game_info = {
-    --camera_range_zoom   = { 0x1beba54, "f", 4},   --> default: 19.05
-    --camera_range_height = { 0x1beba58, "f", 4},   --> default: 0.3
-    --camera_range_angle  = { 0x1beba70, "f", 4},   --> default: 1.35
-
-    camera_range_zoom   = { 0x21f7ef4, "f", 4},   --> default: 19.05
-    camera_range_height = { 0x21f7ef8, "f", 4},   --> default: 0.3
-    camera_range_angle  = { 0x21f7f10, "f", 4},   --> default: 1.35
+    camera_range_zoom   = { 0x04, "f", 4},   --> default: 19.05
+    camera_range_height = { 0x08, "f", 4},   --> default: 0.3
+    camera_range_angle  = { 0x20, "f", 4},   --> default: 1.35
 }
 
 local function load_ini(ctx, filename)
@@ -34,17 +30,26 @@ local function load_ini(ctx, filename)
 end
 
 function m.init(ctx)
-    local pi = memory.get_process_info()
-    log(string.format("process base: %s", hex(pi.base)))
-
     local settings = load_ini(ctx, "camera.ini")
+
+    -- find the base address of the block of camera settings
+    local pattern = "\x84\xc0\x41\x0f\x45\xfe\xf3\x0f\x10\x5b\x0c"
+    local loc = memory.find(pattern)
+    if not loc then
+        log("problem: unable to find code pattern. No tweaks done")
+        return
+    end
+    loc = loc + #pattern
+    local rel_offset = memory.unpack("i32", memory.read(loc + 3, 4))
+    local base_addr = loc + rel_offset + 7
+    log(string.format("Camera block base address: %s", hex(base_addr)))
 
     -- apply settings
     for name,value in pairs(settings) do
         local entry = game_info[name]
         if entry then
-            local rva, format, len = unpack(entry)
-            local addr = pi.base + rva
+            offset, format, len = unpack(entry)
+            local addr = base_addr + offset
             local old_value = memory.unpack(format, memory.read(addr, len))
             memory.write(addr, memory.pack(format, value))
             local new_value = memory.unpack(format, memory.read(addr, len))

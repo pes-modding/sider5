@@ -2,6 +2,14 @@ Sider 5 Release History
 =======================
 
 
+August 31, 2018
+v5.0.1
+- support for full game and demo
+- LiveCPK
+- free side select
+- camera.lua module to tweak ranges of zoom, height, and angle
+
+
 August 8, 2018
 v5.0.0
 - initial chicken release!

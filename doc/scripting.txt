@@ -302,20 +302,37 @@ those values. See modules/memtest.lua - as the example module that
 demonstrates the usage.
 
 
-memory.hex(str)
+memory.hex(value)
 
-Utility function to output a string of bytes in hexadecimal format.
-For example:
+Utility function to output value in hexadecimal format.
+Depending on the type of value, the output differs slightly:
 
     local s = 'Football'
     log(memory.hex(s))  --> prints "466f6f7462616c6c" in the log
 
+    local n = 12345
+    log(memory.hex(n))  --> prints "0x3039" in the log
 
-memory.tohexstring(number)
 
-Utitily function to ouput an integer number in hexadecimal format.
-For example:
+memory.get_process_info()
 
-    local v = 12345
-    log(memory.tohexstring(v))  --> prints "0x3039" in the log
+This function queries the game process (PES2019.exe) for information
+about where it is loaded in memory.
+Return value: a table containing at least two keys:
+    "base" - base address of the main process in memory
+    "sections" - a table of tables, with each member table containing
+                 at least these keys:
+         "name"   - name of the section
+         "start"  - starting address in memory
+         "finish" - first address beyond this section
+
+
+memory.search_process(s)
+
+This function searches for a string s in memory, but unlike memory.search
+function, it does not take start and finish addresses. Instead, it searches
+the game process sections, one at a time, until it finds the string, or
+until all sections are examined.
+Return value: address, at which the string of bytes was found
+              or nil, if the string was not found.
 

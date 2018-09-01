@@ -85,7 +85,7 @@ function m.search(s, from, to)
     local oldprot = ffi.new('uint32_t[1]',{});
     if not C.VirtualProtect(p, range, PAGE_EXECUTE_READWRITE, oldprot) then
         return error(string.format('VirtualProtect failed for %s - %s memory range',
-            m.tohexstring(from), m.tohexstring(to)))
+            m.hex(from), m.hex(to)))
     end
     while p < q do
         if C.memcmp(p, cs, slen) == 0 then
@@ -100,7 +100,7 @@ function m.read(addr, len)
     local oldprot = ffi.new('uint32_t[1]',{});
     if not C.VirtualProtect(p, len, PAGE_EXECUTE_READWRITE, oldprot) then
         return error(string.format('VirtualProtect failed for %s - %s memory range',
-            m.tohexstring(addr), m.tohexstring(addr+len)))
+            m.hex(addr), m.hex(addr+len)))
     end
     return ffi.string(p, len)
 end
@@ -111,7 +111,7 @@ function m.write(addr, s)
     local len = #s
     if not C.VirtualProtect(p, len, PAGE_EXECUTE_READWRITE, oldprot) then
         return error(string.format('VirtualProtect failed for %s - %s memory range',
-            m.tohexstring(addr), m.tohexstring(addr+len)))
+            m.hex(addr), m.hex(addr+len)))
     end
     ffi.copy(p, s, len)
 end
@@ -160,15 +160,13 @@ function m.unpack(fmt, s)
     return error(string.format('Unsupported unpack format: %s', fmt))
 end
 
-function m.hex(s)
-    local v, count = string.gsub(s, '.', function(c)
-        return string.format('%02x', string.byte(c))
-    end)
-    return v
-end
-
-function m.tohexstring(value)
-    if type(value) == 'cdata' then
+function m.hex(value)
+    if type(value) == 'string' then
+        local s, count = string.gsub(value, '.', function(c)
+            return string.format('%02x', string.byte(c))
+        end)
+        return s
+    elseif type(value) == 'cdata' then
         local buf = ffi.new('char[32]',{});
         C.sprintf(buf, ffi.cast('char*', '0x%llx'), ffi.cast('uint64_t',value));
         return ffi.string(buf)
@@ -205,7 +203,7 @@ function m.get_process_info()
     return pinfo
 end
 
-function m.find(s)
+function m.search_process(s)
     local pinfo = m.get_process_info()
     for i,section in ipairs(pinfo.sections) do
         local addr = m.search(s, section.start, section.finish)
@@ -214,6 +212,9 @@ function m.find(s)
         end
     end
 end
+
+-- for backward compatibility
+m.tohexstring = m.hex
         
 return m
 

@@ -9,7 +9,7 @@ Requires: sider.dll 5.0.1
 --]]
 
 local m = {}
-local hex = memory.tohexstring
+local hex = memory.hex
 
 local game_info = {
     gameplay_speed = { 0x1b93c08, "f", 4 },       --> default: 0.200

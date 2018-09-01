@@ -9,7 +9,7 @@ Requires: sider.dll 5.0.1
 --]]
 
 local m = {}
-local hex = memory.tohexstring
+local hex = memory.hex
 
 local game_info = {
     camera_range_zoom   = { 0x04, "f", 4},   --> default: 19.05

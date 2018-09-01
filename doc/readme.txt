@@ -124,8 +124,8 @@ also objects and events provides by sider. See "scripting.txt" file for
 a programmer's guide to writing lua modules for sider.
 
 
+lua.module = "camera.lua"
 lua.module = "kitrewrite.lua"
-lua.module = "timeaccel.lua"
 
 - Specifies the order in which the extension modules are loaded. These
 modules must be in "modules" folder inside the sider root directory.
@@ -136,6 +136,6 @@ CREDITS:
 --------
 Game research: nesa24, juce, digitalfoxx
 Programming: juce
-Alpha testing: zlac, nesa24, Chuny, Hawke
+Alpha testing: zlac, nesa24, Chuny, Hawke, sonofsam69
 Blue Champions League ball: Hawke and digitalfoxx
 

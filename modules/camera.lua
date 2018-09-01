@@ -34,7 +34,7 @@ function m.init(ctx)
 
     -- find the base address of the block of camera settings
     local pattern = "\x84\xc0\x41\x0f\x45\xfe\xf3\x0f\x10\x5b\x0c"
-    local loc = memory.find(pattern)
+    local loc = memory.search_process(pattern)
     if not loc then
         log("problem: unable to find code pattern. No tweaks done")
         return

@@ -333,6 +333,7 @@ This function searches for a string s in memory, but unlike memory.search
 function, it does not take start and finish addresses. Instead, it searches
 the game process sections, one at a time, until it finds the string, or
 until all sections are examined.
-Return value: address, at which the string of bytes was found
-              or nil, if the string was not found.
+Returns 2 values:
+    1) address of string s in memory, if found, or nil - otherwise
+    2) table with section info, in which the string was found.
 

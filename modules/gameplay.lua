@@ -58,7 +58,7 @@ function m.init(ctx)
     for name,value in pairs(settings) do
         local entry = patches[name]
         if entry and tonumber(value)==1 then
-            local addr, section = memory.find(entry.search_for)
+            local addr, section = memory.search_process(entry.search_for)
             if addr then
                 memory.write(addr, entry.replace_with)
                 log(string.format("patch \"%s\" installed at %s (section: %s [%s - %s])",

@@ -2113,31 +2113,29 @@ DWORD install_func(LPVOID thread_param) {
 }
 
 bool all_found(config_t *cfg) {
+    bool all(true);
     if (cfg->_livecpk_enabled) {
-        return (
+        all = all && (
             cfg->_hp_at_read_file > 0 &&
             cfg->_hp_at_get_size > 0 &&
             cfg->_hp_at_extend_cpk > 0 &&
             cfg->_hp_at_mem_copy > 0 &&
-            cfg->_hp_at_lookup_file > 0 &&
-            //cfg->_hp_at_set_team_id > 0 &&
-            //cfg->_hp_at_set_settings > 0 &&
-            //cfg->_hp_at_trophy_check > 0 &&
-            //cfg->_hp_at_context_reset > 0 &&
+            cfg->_hp_at_lookup_file > 0
+        );
+    }
+    if (cfg->_num_minutes > 0) {
+        all = all && (
             cfg->_hp_at_set_min_time > 0 &&
             cfg->_hp_at_set_max_time > 0 &&
-            cfg->_hp_at_set_minutes > 0 &&
+            cfg->_hp_at_set_minutes > 0
+        );
+    }
+    if (cfg->_free_side_select) {
+        all = (
             cfg->_hp_at_sider > 0
         );
     }
-    else {
-        return (
-            cfg->_hp_at_set_min_time > 0 &&
-            cfg->_hp_at_set_max_time > 0 &&
-            cfg->_hp_at_set_minutes > 0 &&
-            cfg->_hp_at_sider > 0
-        );
-    }
+    return all;
 }
 
 bool _install_func(IMAGE_SECTION_HEADER *h) {
@@ -2163,19 +2161,19 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag[11] = pattern_set_minutes;
     frag[12] = pattern_sider;
     size_t frag_len[NUM_PATTERNS];
-    frag_len[0] = sizeof(lcpk_pattern_at_read_file)-1;
-    frag_len[1] = sizeof(lcpk_pattern_at_get_size)-1;
-    frag_len[2] = sizeof(lcpk_pattern_at_write_cpk_filesize)-1;
-    frag_len[3] = sizeof(lcpk_pattern_at_mem_copy)-1;
-    frag_len[4] = sizeof(lcpk_pattern_at_lookup_file)-1;
+    frag_len[0] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_read_file)-1 : 0;
+    frag_len[1] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_get_size)-1 : 0;
+    frag_len[2] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_write_cpk_filesize)-1 : 0;
+    frag_len[3] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_mem_copy)-1 : 0;
+    frag_len[4] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_lookup_file)-1 : 0;
     frag_len[5] = 0; //sizeof(pattern_set_team_id)-1;
     frag_len[6] = 0; //sizeof(pattern_set_settings)-1;
     frag_len[7] = 0; //sizeof(pattern_trophy_check)-1;
     frag_len[8] = 0; //sizeof(pattern_context_reset)-1;
-    frag_len[9] = sizeof(pattern_set_min_time)-1;
-    frag_len[10] = sizeof(pattern_set_max_time)-1;
-    frag_len[11] = sizeof(pattern_set_minutes)-1;
-    frag_len[12] = sizeof(pattern_sider)-1;
+    frag_len[9] = (_config->_num_minutes > 0) ? sizeof(pattern_set_min_time)-1 : 0;
+    frag_len[10] = (_config->_num_minutes > 0) ? sizeof(pattern_set_max_time)-1 : 0;
+    frag_len[11] = (_config->_num_minutes > 0) ? sizeof(pattern_set_minutes)-1 : 0;
+    frag_len[12] = _config->_free_side_select ? sizeof(pattern_sider)-1 : 0;
     int offs[NUM_PATTERNS];
     offs[0] = lcpk_offs_at_read_file;
     offs[1] = lcpk_offs_at_get_size;

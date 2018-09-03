@@ -2272,7 +2272,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
 
             hook_call_with_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
                 (BYTE*)pattern_set_team_id_tail, sizeof(pattern_set_team_id_tail)-1);
-            hook_call(_config->_hp_at_set_settings, (BYTE*)sider_set_settings_hk, 1);
+            hook_call(_config->_hp_at_set_settings, (BYTE*)sider_set_settings_hk, 0);
             hook_call_with_head_and_tail(_config->_hp_at_trophy_check, (BYTE*)sider_trophy_check_hk,
                 (BYTE*)pattern_trophy_check_head, sizeof(pattern_trophy_check_head)-1,
                 (BYTE*)pattern_trophy_check_tail, sizeof(pattern_trophy_check_tail)-1);

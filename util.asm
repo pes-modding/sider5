@@ -193,8 +193,8 @@ sider_trophy_check_hk proc
         call    sider_trophy_check
         mov     rcx,rax
         mov     rdx,[rsp+20h]
-        mov     rdi,rdx
-        movzx   ebx,cx
+        mov     rbx,rdx
+        movzx   edi,cx
         mov     eax,0ffffh
         add     rsp,20h
         pop     rdx

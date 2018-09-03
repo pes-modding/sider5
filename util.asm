@@ -152,8 +152,8 @@ sider_set_settings_hk proc
         vmovdqu  ymmword ptr [rsp+1c0h],ymm14
         vmovdqu  ymmword ptr [rsp+1e0h],ymm15
         sub     rsp,20h
-        movzx   eax,byte ptr [rdx+8bh]
-        mov     byte ptr [rcx+8bh],al
+        movzx   eax,byte ptr [rdx+98h]
+        mov     dword ptr [rcx+98h],eax
         call    sider_set_settings
         add     rsp,20h
         vmovdqu  ymm0,ymmword ptr [rsp+00h]
@@ -206,7 +206,7 @@ sider_context_reset_hk proc
 
         sub     rsp,28h
         mov     qword ptr [rbx+84h],rcx
-        mov     qword ptr [rbx+159ach],0ffffffffh
+        mov     qword ptr [rbx+21f74h],0ffffffffh
         call    sider_context_reset
         add     rsp,28h
         ret

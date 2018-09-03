@@ -1495,7 +1495,7 @@ void sider_set_team_id(DWORD *dest, DWORD *team_id_encoded, DWORD offset)
 
 void sider_set_settings(STAD_STRUCT *dest_ss, STAD_STRUCT *src_ss)
 {
-    MATCH_INFO_STRUCT *mi = (MATCH_INFO_STRUCT*)((BYTE*)dest_ss - 0x68);
+    MATCH_INFO_STRUCT *mi = (MATCH_INFO_STRUCT*)((BYTE*)dest_ss - 0x6c);
     bool ok = mi && (mi->db0x03 == 0x03) && (mi->db0x17 == 0x17 || mi->db0x17 == 0x12);
     if (!ok) {
         // safety check
@@ -2143,9 +2143,9 @@ bool all_found(config_t *cfg) {
     if (cfg->_lua_enabled) {
         all = all && (
             cfg->_hp_at_set_team_id > 0 &&
-            //cfg->_hp_at_set_settings > 0 &&
-            cfg->_hp_at_trophy_check > 0 //&&
-            //cfg->_hp_at_context_reset > 0
+            cfg->_hp_at_set_settings > 0 &&
+            cfg->_hp_at_trophy_check > 0 &&
+            cfg->_hp_at_context_reset > 0
         );
     }
     if (cfg->_num_minutes > 0) {
@@ -2192,9 +2192,9 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag_len[3] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_mem_copy)-1 : 0;
     frag_len[4] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_lookup_file)-1 : 0;
     frag_len[5] = _config->_lua_enabled ? sizeof(pattern_set_team_id)-1 : 0;
-    frag_len[6] = 0; //_config->_lua_enabled ? sizeof(pattern_set_settings)-1 : 0;
+    frag_len[6] = _config->_lua_enabled ? sizeof(pattern_set_settings)-1 : 0;
     frag_len[7] = _config->_lua_enabled ? sizeof(pattern_trophy_check)-1 : 0;
-    frag_len[8] = 0; //_config->_lua_enabled ? sizeof(pattern_context_reset)-1 : 0;
+    frag_len[8] = _config->_lua_enabled ? sizeof(pattern_context_reset)-1 : 0;
     frag_len[9] = (_config->_num_minutes > 0) ? sizeof(pattern_set_min_time)-1 : 0;
     frag_len[10] = (_config->_num_minutes > 0) ? sizeof(pattern_set_max_time)-1 : 0;
     frag_len[11] = (_config->_num_minutes > 0) ? sizeof(pattern_set_minutes)-1 : 0;
@@ -2266,9 +2266,9 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
 
         if (_config->_lua_enabled) {
             log_(L"sider_set_team_id: %p\n", sider_set_team_id_hk);
-            //log_(L"sider_set_settings: %p\n", sider_set_settings_hk);
+            log_(L"sider_set_settings: %p\n", sider_set_settings_hk);
             log_(L"sider_trophy_check: %p\n", sider_trophy_check_hk);
-            //log_(L"sider_context_reset: %p\n", sider_context_reset_hk);
+            log_(L"sider_context_reset: %p\n", sider_context_reset_hk);
 
             hook_call_with_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
                 (BYTE*)pattern_set_team_id_tail, sizeof(pattern_set_team_id_tail)-1);

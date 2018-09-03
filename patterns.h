@@ -90,16 +90,21 @@ static BYTE pattern_set_settings[18] =
     "\xc3";
 static int offs_set_settings = 0;
 
-/*
-0000000141C5A870 | 0F B7 D0                           | movzx edx,ax                            | check tournament_id for trophy
-0000000141C5A873 | 66 89 44 24 50                     | mov word ptr ss:[rsp+50],ax             |
-0000000141C5A878 | 48 8B CD                           | mov rcx,rbp                             |
-*/
-static BYTE pattern_trophy_check[12] =
-    "\x0f\xb7\xd0"
-    "\x66\x89\x44\x24\x50"
-    "\x48\x8b\xcd";
-static int offs_trophy_check = -12;
+static BYTE pattern_trophy_check[20] =
+    "\x48\x89\x5c\x24\x08"
+    "\x57"
+    "\x48\x83\xec\x20"
+    "\x48\x89\xd7"
+    "\x0f\xb7\xd9"
+    "\x48\x85\xd2";
+static int offs_trophy_check = 5;
+
+static BYTE pattern_trophy_check_head[5] =
+    "\x48\x83\xec\x28";
+
+static BYTE pattern_trophy_check_tail[6] =
+    "\x48\x85\xd2"
+    "\x74\x58";
 
 /*
 0000000140A0DF3C | 48 89 8B 84 00 00 00                 | mov qword ptr ds:[rbx+84],rcx           |

@@ -193,9 +193,9 @@ extern "C" void sider_set_settings(STAD_STRUCT *dest_ss, STAD_STRUCT *src_ss);
 
 extern "C" void sider_set_settings_hk();
 
-extern "C" WORD sider_trophy_check(MATCH_INFO_STRUCT *mi);
+extern "C" WORD sider_trophy_check(WORD tournament_id);
 
-extern "C" WORD sider_trophy_check_hk(MATCH_INFO_STRUCT *mi);
+extern "C" WORD sider_trophy_check_hk(WORD tournament_id);
 
 extern "C" void sider_context_reset();
 
@@ -1552,9 +1552,9 @@ void sider_set_settings(STAD_STRUCT *dest_ss, STAD_STRUCT *src_ss)
         dest_ss->stadium, dest_ss->timeofday, dest_ss->weather, dest_ss->season);
 }
 
-WORD sider_trophy_check(MATCH_INFO_STRUCT* mi)
+WORD sider_trophy_check(WORD tournament_id)
 {
-    WORD tid = mi->tournament_id_encoded;
+    WORD tid = tournament_id;
     if (_config->_lua_enabled) {
         // lua callbacks
         list<module_t*>::iterator i;
@@ -1567,7 +1567,7 @@ WORD sider_trophy_check(MATCH_INFO_STRUCT* mi)
             }
         }
     }
-    logu_("trophy check:: for trophy scenes tournament_id: %d --> %d\n", mi->tournament_id_encoded, tid);
+    logu_("trophy check:: for trophy scenes tournament_id: %d --> %d\n", tournament_id, tid);
     return tid;
 }
 
@@ -1660,6 +1660,22 @@ void hook_call_with_tail(BYTE *loc, BYTE *p, BYTE *tail, size_t tail_size) {
         memcpy(loc+10, "\xff\xd0", 2);      // call rax
         memcpy(loc+12, tail, tail_size);  // tail code
         log_(L"hook_call_with_tail: hooked at %p (target: %p)\n", loc, p);
+    }
+}
+
+void hook_call_with_head_and_tail(BYTE *loc, BYTE *p, BYTE *head, size_t head_size, BYTE *tail, size_t tail_size) {
+    if (!loc) {
+        return;
+    }
+    DWORD protection = 0 ;
+    DWORD newProtection = PAGE_EXECUTE_READWRITE;
+    if (VirtualProtect(loc, 64, newProtection, &protection)) {
+        memcpy(loc, head, head_size);   // head code
+        memcpy(loc+head_size, "\x48\xb8", 2);
+        memcpy(loc+head_size+2, &p, sizeof(BYTE*));  // mov rax,<target_addr>
+        memcpy(loc+head_size+10, "\xff\xd0", 2);     // call rax
+        memcpy(loc+head_size+12, tail, tail_size);   // tail rax
+        log_(L"hook_call_with_head: hooked at %p (target: %p)\n", loc, p);
     }
 }
 
@@ -2123,6 +2139,14 @@ bool all_found(config_t *cfg) {
             cfg->_hp_at_lookup_file > 0
         );
     }
+    if (cfg->_lua_enabled) {
+        all = all && (
+            //cfg->_hp_at_set_team_id > 0 &&
+            //cfg->_hp_at_set_settings > 0 &&
+            cfg->_hp_at_trophy_check > 0 //&&
+            //cfg->_hp_at_context_reset > 0
+        );
+    }
     if (cfg->_num_minutes > 0) {
         all = all && (
             cfg->_hp_at_set_min_time > 0 &&
@@ -2131,7 +2155,7 @@ bool all_found(config_t *cfg) {
         );
     }
     if (cfg->_free_side_select) {
-        all = (
+        all = all && (
             cfg->_hp_at_sider > 0
         );
     }
@@ -2166,10 +2190,10 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag_len[2] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_write_cpk_filesize)-1 : 0;
     frag_len[3] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_mem_copy)-1 : 0;
     frag_len[4] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_lookup_file)-1 : 0;
-    frag_len[5] = 0; //sizeof(pattern_set_team_id)-1;
-    frag_len[6] = 0; //sizeof(pattern_set_settings)-1;
-    frag_len[7] = 0; //sizeof(pattern_trophy_check)-1;
-    frag_len[8] = 0; //sizeof(pattern_context_reset)-1;
+    frag_len[5] = 0; //_config->_lua_enabled ? sizeof(pattern_set_team_id)-1 : 0;
+    frag_len[6] = 0; //_config->_lua_enabled ? sizeof(pattern_set_settings)-1 : 0;
+    frag_len[7] = _config->_lua_enabled ? sizeof(pattern_trophy_check)-1 : 0;
+    frag_len[8] = 0; //_config->_lua_enabled ? sizeof(pattern_context_reset)-1 : 0;
     frag_len[9] = (_config->_num_minutes > 0) ? sizeof(pattern_set_min_time)-1 : 0;
     frag_len[10] = (_config->_num_minutes > 0) ? sizeof(pattern_set_max_time)-1 : 0;
     frag_len[11] = (_config->_num_minutes > 0) ? sizeof(pattern_set_minutes)-1 : 0;
@@ -2248,7 +2272,9 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
             hook_call_with_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
                 (BYTE*)pattern_set_team_id_tail, sizeof(pattern_set_team_id_tail)-1);
             hook_call(_config->_hp_at_set_settings, (BYTE*)sider_set_settings_hk, 1);
-            hook_call(_config->_hp_at_trophy_check, (BYTE*)sider_trophy_check_hk, 0);
+            hook_call_with_head_and_tail(_config->_hp_at_trophy_check, (BYTE*)sider_trophy_check_hk,
+                (BYTE*)pattern_trophy_check_head, sizeof(pattern_trophy_check_head)-1,
+                (BYTE*)pattern_trophy_check_tail, sizeof(pattern_trophy_check_tail)-1);
             hook_call(_config->_hp_at_context_reset, (BYTE*)sider_context_reset_hk, 6);
         }
 

@@ -187,10 +187,17 @@ sider_set_settings_hk endp
 
 sider_trophy_check_hk proc
 
-        sub     rsp,28h
-        lea     rcx,qword ptr [rdi+312a8h]
+        push    rdx
+        sub     rsp,20h
+        mov     [rsp+50h],rdi
         call    sider_trophy_check
-        add     rsp,28h
+        mov     rcx,rax
+        mov     rdx,[rsp+20h]
+        mov     rdi,rdx
+        movzx   ebx,cx
+        mov     eax,0ffffh
+        add     rsp,20h
+        pop     rdx
         ret
 
 sider_trophy_check_hk endp

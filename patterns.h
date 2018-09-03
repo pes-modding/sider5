@@ -44,20 +44,20 @@ static BYTE lcpk_pattern_at_lookup_file[16] =
 static int lcpk_offs_at_lookup_file = 0;
 
 /*
-000000014126DF00 | 49 63 00                           | movsxd rax,dword ptr ds:[r8]            | prep to write team info
-000000014126DF03 | 83 F8 02                           | cmp eax,2                               |
-000000014126DF06 | 7D 16                              | jge pes2018.14126DF1E                   |
-000000014126DF08 | 4C 69 C0 20 05 00 00               | imul r8,rax,520                         |
-000000014126DF0F | 48 81 C1 04 01 00 00               | add rcx,104                             |
-000000014126DF16 | 49 03 C8                           | add rcx,r8                              |
+000000014ACDA200 | 49 63 00                             | movsxd rax,dword ptr ds:[r8]               |
+000000014ACDA203 | 83 F8 02                             | cmp eax,2                                  |
+000000014ACDA206 | 7D 16                                | jge pes2019.14ACDA21E                      |
+000000014ACDA208 | 4C 69 C0 EC 05 00 00                 | imul r8,rax,5EC                            |
+000000014ACDA20F | 48 81 C1 18 01 00 00                 | add rcx,118                                |
+000000014ACDA216 | 4C 01 C1                             | add rcx,r8                                 |
 */
 static BYTE pattern_set_team_id[26] =
     "\x49\x63\x00"
     "\x83\xf8\x02"
     "\x7d\x16"
-    "\x4c\x69\xc0\x20\x05\x00\x00"
-    "\x48\x81\xc1\x04\x01\x00\x00"
-    "\x49\x03\xc8";
+    "\x4c\x69\xc0\xec\x05\x00\x00"
+    "\x48\x81\xc1\x18\x01\x00\x00"
+    "\x4c\x01\xc1";
 static int offs_set_team_id = 0;
 
 /*

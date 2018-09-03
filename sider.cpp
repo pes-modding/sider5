@@ -109,6 +109,7 @@ struct STAD_STRUCT {
 
 struct MATCH_INFO_STRUCT {
     DWORD dw0;
+    DWORD dw1;
     WORD match_id;
     WORD tournament_id_encoded;
     BYTE match_leg;
@@ -1457,8 +1458,8 @@ void sider_set_team_id(DWORD *dest, DWORD *team_id_encoded, DWORD offset)
         logu_("setting AWAY team: %d\n", decode_team_id(*team_id_encoded));
     }
 
-    BYTE *p = (BYTE*)dest - 0x104;
-    p = (is_home) ? p : p - 0x520;
+    BYTE *p = (BYTE*)dest - 0x118;
+    p = (is_home) ? p : p - 0x5ec;
     MATCH_INFO_STRUCT *mi = (MATCH_INFO_STRUCT*)p;
     //logu_("mi: %p\n", mi);
     //logu_("mi->dw0: 0x%x\n", mi->dw0);
@@ -1476,7 +1477,7 @@ void sider_set_team_id(DWORD *dest, DWORD *team_id_encoded, DWORD offset)
             set_context_field_int("stadium_choice", mi->stadium_choice);
             set_match_info(mi);
 
-            DWORD home = decode_team_id(*(DWORD*)((BYTE*)dest - 0x520));
+            DWORD home = decode_team_id(*(DWORD*)((BYTE*)dest - 0x5ec));
             DWORD away = decode_team_id(*team_id_encoded);
 
             set_context_field_int("home_team", home);
@@ -2141,7 +2142,7 @@ bool all_found(config_t *cfg) {
     }
     if (cfg->_lua_enabled) {
         all = all && (
-            //cfg->_hp_at_set_team_id > 0 &&
+            cfg->_hp_at_set_team_id > 0 &&
             //cfg->_hp_at_set_settings > 0 &&
             cfg->_hp_at_trophy_check > 0 //&&
             //cfg->_hp_at_context_reset > 0
@@ -2190,7 +2191,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag_len[2] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_write_cpk_filesize)-1 : 0;
     frag_len[3] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_mem_copy)-1 : 0;
     frag_len[4] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_lookup_file)-1 : 0;
-    frag_len[5] = 0; //_config->_lua_enabled ? sizeof(pattern_set_team_id)-1 : 0;
+    frag_len[5] = _config->_lua_enabled ? sizeof(pattern_set_team_id)-1 : 0;
     frag_len[6] = 0; //_config->_lua_enabled ? sizeof(pattern_set_settings)-1 : 0;
     frag_len[7] = _config->_lua_enabled ? sizeof(pattern_trophy_check)-1 : 0;
     frag_len[8] = 0; //_config->_lua_enabled ? sizeof(pattern_context_reset)-1 : 0;
@@ -2264,9 +2265,9 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
         }
 
         if (_config->_lua_enabled) {
-            //log_(L"sider_set_team_id: %p\n", sider_set_team_id_hk);
+            log_(L"sider_set_team_id: %p\n", sider_set_team_id_hk);
             //log_(L"sider_set_settings: %p\n", sider_set_settings_hk);
-            //log_(L"sider_trophy_check: %p\n", sider_trophy_check_hk);
+            log_(L"sider_trophy_check: %p\n", sider_trophy_check_hk);
             //log_(L"sider_context_reset: %p\n", sider_context_reset_hk);
 
             hook_call_with_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,

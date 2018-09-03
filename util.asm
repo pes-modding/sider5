@@ -101,8 +101,8 @@ sider_set_team_id_hk proc
         mov     [rsp+30h],rax
         cmp     eax,2
         jge     done
-        imul    r8,rax,520h
-        add     rcx,104h
+        imul    r8,rax,5ech
+        add     rcx,118h
         add     rcx,r8
         mov     [rsp+20h],rcx
         mov     [rsp+28h],r8

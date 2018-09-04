@@ -130,6 +130,20 @@ struct MATCH_INFO_STRUCT {
     struct STAD_STRUCT stad;
     DWORD home_team_encoded;
 };
+
+struct TROPHY_TABLE_ENTRY {
+    WORD tournament_id;
+    WORD dw0;
+    DWORD trophy_id;
+};
+
+#define TT_LEN 0x14b
+TROPHY_TABLE_ENTRY _trophy_table[TT_LEN];
+typedef unordered_map<WORD,DWORD> trophy_map_t;
+trophy_map_t *_trophy_map;
+
+WORD _tournament_id = 0xffff;
+
 // home team encoded-id offset: 0x104
 // home team name offset:       0x108
 // away team encoded-id offset: 0x624
@@ -194,9 +208,9 @@ extern "C" void sider_set_settings(STAD_STRUCT *dest_ss, STAD_STRUCT *src_ss);
 
 extern "C" void sider_set_settings_hk();
 
-extern "C" WORD sider_trophy_check(WORD tournament_id);
+extern "C" DWORD sider_trophy_check(WORD tournament_id);
 
-extern "C" WORD sider_trophy_check_hk(WORD tournament_id);
+extern "C" DWORD sider_trophy_check_hk(WORD tournament_id);
 
 extern "C" void sider_context_reset();
 
@@ -205,6 +219,10 @@ extern "C" void sider_context_reset_hk();
 extern "C" void sider_free_select_hk();
 
 extern "C" void sider_free_select(BYTE *controller_restriction);
+
+extern "C" void sider_trophy_table(TROPHY_TABLE_ENTRY *tt);
+
+extern "C" void sider_trophy_table_hk();
 
 static DWORD dwThreadId;
 static DWORD hookingThreadId = 0;
@@ -370,6 +388,7 @@ public:
     BYTE *_hp_at_set_settings;
     BYTE *_hp_at_trophy_check;
     BYTE *_hp_at_context_reset;
+    BYTE *_hp_at_trophy_table;
 
     BYTE *_hp_at_set_min_time;
     BYTE *_hp_at_set_max_time;
@@ -402,6 +421,7 @@ public:
                  _hp_at_set_max_time(NULL),
                  _hp_at_set_minutes(NULL),
                  _hp_at_sider(NULL),
+                 _hp_at_trophy_table(NULL),
                  _num_minutes(0)
     {
         wchar_t settings[32767];
@@ -1472,6 +1492,7 @@ void sider_set_team_id(DWORD *dest, DWORD *team_id_encoded, DWORD offset)
             clear_context_fields(_context_fields, _context_fields_count);
         }
         else {
+            _tournament_id = mi->tournament_id_encoded;
             set_context_field_int("tournament_id", mi->tournament_id_encoded);
             set_context_field_int("match_time", mi->match_time);
             set_context_field_int("stadium_choice", mi->stadium_choice);
@@ -1555,34 +1576,67 @@ void sider_set_settings(STAD_STRUCT *dest_ss, STAD_STRUCT *src_ss)
         dest_ss->stadium, dest_ss->timeofday, dest_ss->weather, dest_ss->season);
 }
 
-WORD sider_trophy_check(WORD tournament_id)
+DWORD sider_trophy_check(WORD trophy_id)
 {
-    WORD tid = tournament_id;
+    WORD tid = trophy_id;
+    logu_("trophy check:: trophy-id: 0x%0x\n", tid);
     if (_config->_lua_enabled) {
         // lua callbacks
         list<module_t*>::iterator i;
         for (i = _modules.begin(); i != _modules.end(); i++) {
             module_t *m = *i;
             WORD new_tid = tid;
-            if (module_trophy_rewrite(m, tid, &new_tid)) {
-                tid = new_tid;
-                break;
+            WORD new_tournament_id = _tournament_id;
+            if (module_trophy_rewrite(m, _tournament_id, &new_tournament_id)) {
+                trophy_map_t::iterator it = _trophy_map->find(new_tournament_id);
+                if (it != _trophy_map->end()) {
+                    new_tid = it->second;
+                    logu_("trophy check:: rewrite trophy-id: 0x%x --> 0x%x\n", tid, new_tid);
+                    tid = new_tid;
+                    break;
+                }
             }
         }
     }
-    logu_("trophy check:: for trophy scenes tournament_id: %d --> %d\n", tournament_id, tid);
     return tid;
 }
 
 void sider_context_reset()
 {
     clear_context_fields(_context_fields, _context_fields_count);
+    _tournament_id = 0xffff;
     logu_("context reset\n");
 }
 
 void sider_free_select(BYTE *controller_restriction)
 {
     *controller_restriction = 0;
+}
+
+void sider_trophy_table(TROPHY_TABLE_ENTRY *tt)
+{
+    //logu_("trophy table addr: %p\n", tt);
+    //logu_("tid: %d (0x%x) --> 0x%x\n", tt->tournament_id, tt->trophy_id);
+    if (!_trophy_map) {
+        _trophy_map = new trophy_map_t();
+    }
+    for (int i=0; i<TT_LEN; i++) {
+        (*_trophy_map)[tt->tournament_id] = tt->trophy_id;
+        tt++;
+    }
+
+    // test
+    /*
+    trophy_map_t::iterator it;
+    it = _trophy_map->find(86);
+    if (it != _trophy_map->end()) {
+        logu_("tt entry: %d (0x%x) --> 0x%x\n", 86, 86, it->second);
+    }
+    it = _trophy_map->find(43);
+    if (it != _trophy_map->end()) {
+        logu_("tt entry: %d (0x%x) --> 0x%x\n", 43, 43, it->second);
+    }
+    */
 }
 
 BYTE* get_target_location(BYTE *call_location)
@@ -2147,6 +2201,7 @@ bool all_found(config_t *cfg) {
             cfg->_hp_at_set_team_id > 0 &&
             cfg->_hp_at_set_settings > 0 &&
             cfg->_hp_at_trophy_check > 0 &&
+            cfg->_hp_at_trophy_table > 0 &&
             cfg->_hp_at_context_reset > 0
         );
     }
@@ -2172,7 +2227,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
         base, base + h->Misc.VirtualSize, h->Misc.VirtualSize);
     bool result(false);
 
-#define NUM_PATTERNS 13
+#define NUM_PATTERNS 14
     BYTE *frag[NUM_PATTERNS];
     frag[0] = lcpk_pattern_at_read_file;
     frag[1] = lcpk_pattern_at_get_size;
@@ -2187,6 +2242,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag[10] = pattern_set_max_time;
     frag[11] = pattern_set_minutes;
     frag[12] = pattern_sider;
+    frag[13] = pattern_trophy_table;
     size_t frag_len[NUM_PATTERNS];
     frag_len[0] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_read_file)-1 : 0;
     frag_len[1] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_get_size)-1 : 0;
@@ -2201,6 +2257,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag_len[10] = (_config->_num_minutes > 0) ? sizeof(pattern_set_max_time)-1 : 0;
     frag_len[11] = (_config->_num_minutes > 0) ? sizeof(pattern_set_minutes)-1 : 0;
     frag_len[12] = _config->_free_side_select ? sizeof(pattern_sider)-1 : 0;
+    frag_len[13] = _config->_lua_enabled ? sizeof(pattern_trophy_table)-1 : 0;
     int offs[NUM_PATTERNS];
     offs[0] = lcpk_offs_at_read_file;
     offs[1] = lcpk_offs_at_get_size;
@@ -2215,6 +2272,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     offs[10] = offs_set_max_time;
     offs[11] = offs_set_minutes;
     offs[12] = offs_sider;
+    offs[13] = offs_trophy_table;
     BYTE **addrs[NUM_PATTERNS];
     addrs[0] = &_config->_hp_at_read_file;
     addrs[1] = &_config->_hp_at_get_size;
@@ -2229,6 +2287,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     addrs[10] = &_config->_hp_at_set_max_time;
     addrs[11] = &_config->_hp_at_set_minutes;
     addrs[12] = &_config->_hp_at_sider;
+    addrs[13] = &_config->_hp_at_trophy_table;
 
     for (int j=0; j<NUM_PATTERNS; j++) {
         if (frag_len[j]==0) {
@@ -2275,9 +2334,8 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
             hook_call_with_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
                 (BYTE*)pattern_set_team_id_tail, sizeof(pattern_set_team_id_tail)-1);
             hook_call(_config->_hp_at_set_settings, (BYTE*)sider_set_settings_hk, 0);
-            hook_call_with_head_and_tail(_config->_hp_at_trophy_check, (BYTE*)sider_trophy_check_hk,
-                (BYTE*)pattern_trophy_check_head, sizeof(pattern_trophy_check_head)-1,
-                (BYTE*)pattern_trophy_check_tail, sizeof(pattern_trophy_check_tail)-1);
+            hook_call_rcx(_config->_hp_at_trophy_check, (BYTE*)sider_trophy_check_hk, 0);
+            hook_call_rcx(_config->_hp_at_trophy_table, (BYTE*)sider_trophy_table_hk, 0);
             hook_call(_config->_hp_at_context_reset, (BYTE*)sider_context_reset_hk, 6);
         }
 

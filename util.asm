@@ -15,6 +15,7 @@ extern sider_set_settings:proc
 extern sider_trophy_check:proc
 extern sider_context_reset:proc
 extern sider_free_select:proc
+extern sider_trophy_table:proc
 
 .code
 sider_read_file_hk proc
@@ -187,17 +188,15 @@ sider_set_settings_hk endp
 
 sider_trophy_check_hk proc
 
-        push    rdx
+        push    rax
         sub     rsp,20h
-        mov     [rsp+50h],rdi
+        mov     ecx,dword ptr [rbp+488h]
         call    sider_trophy_check
-        mov     rcx,rax
-        mov     rdx,[rsp+20h]
-        mov     rbx,rdx
-        movzx   edi,cx
-        mov     eax,0ffffh
+        mov     ecx,eax
+        and     r14b,1
+        sar     esi,1
         add     rsp,20h
-        pop     rdx
+        pop     rax
         ret
 
 sider_trophy_check_hk endp
@@ -226,5 +225,22 @@ sider_free_select_hk proc
         ret
 
 sider_free_select_hk endp
+
+sider_trophy_table_hk proc
+
+        push    rax
+        push    r11
+        sub     rsp,28h
+        mov     rbx,qword ptr [r11+30h]
+        mov     rsi,qword ptr [r11+38h]
+        mov     rdi,qword ptr [r11+40h]
+        lea     rcx,[rsp+40h]
+        call    sider_trophy_table
+        add     rsp,28h
+        pop     r11
+        pop     rax
+        ret
+
+sider_trophy_table_hk endp
 
 end

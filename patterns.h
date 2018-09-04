@@ -103,14 +103,18 @@ static BYTE pattern_set_settings[17] =
     "\xc3";
 static int offs_set_settings = 0;
 
+/*
+000000015110A827 | 4C 8D A5 F0 C3 00 00                  | lea r12,qword ptr ss:[rbp+C3F0] |
+000000015110A82E | 8B 8D 88 04 00 00                     | mov ecx,dword ptr ss:[rbp+488]  | t-check (4)
+000000015110A834 | 41 80 E6 01                           | and r14b,1                      |
+000000015110A838 | D1 FE                                 | sar esi,1                       |
+*/
 static BYTE pattern_trophy_check[20] =
-    "\x48\x89\x5c\x24\x10"
-    "\x57"
-    "\x48\x83\xec\x20"
-    "\x48\x89\xd3"
-    "\x0f\xb7\xf9"
-    "\x48\x85\xd2";
-static int offs_trophy_check = 5;
+    "\x4c\x8d\xa5\xf0\xc3\x00\x00"
+    "\x8b\x8d\x88\x04\x00\x00"
+    "\x41\x80\xe6\x01"
+    "\xd1\xfe";
+static int offs_trophy_check = 7;
 
 static BYTE pattern_trophy_check_head[5] =
     "\x48\x83\xec\x28";
@@ -173,5 +177,24 @@ static BYTE pattern_sider[13] =
     "\xf2\x0f\x10\x00"
     "\xf2\x0f\x11\x83\xa4\x00\x00\x00";
 static int offs_sider = 0;
+
+// tournament_id --> trophy_id table
+/*
+00000001509325A1 | 4C 8D 9C 24 70 0A 00 00        | lea r11,qword ptr ss:[rsp+A70]       |
+00000001509325A9 | 49 8B 5B 30                    | mov rbx,qword ptr ds:[r11+30]        |
+00000001509325AD | 49 8B 73 38                    | mov rsi,qword ptr ds:[r11+38]        |
+00000001509325B1 | 49 8B 7B 40                    | mov rdi,qword ptr ds:[r11+40]        |
+
+000000015093258B | 48 63 C1                       | movsxd rax,ecx                       |
+000000015093258E | 8B 44 C4 04                    | mov eax,dword ptr ss:[rsp+rax*8+4]   |
+0000000150932592 | 48 8B 8D 60 09 00 00           | mov rcx,qword ptr ss:[rbp+960]       |
+0000000150932599 | 48 31 E1                       | xor rcx,rsp                          |
+*/
+static BYTE pattern_trophy_table[18] =
+    "\x48\x63\xc1"
+    "\x8b\x44\xc4\x04"
+    "\x48\x8b\x8d\x60\x09\x00\x00"
+    "\x48\x31\xe1";
+static int offs_trophy_table = 30;
 
 #endif

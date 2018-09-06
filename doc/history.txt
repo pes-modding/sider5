@@ -2,6 +2,13 @@ Sider 5 Release History
 =======================
 
 
+September 6, 2018
+v5.0.2
+- Lua scripting: support for context fields and events
+  set_teams, set_conditions, set_stadium, set_match_time,
+  trophy_check)
+
+
 August 31, 2018
 v5.0.1
 - support for full game and demo

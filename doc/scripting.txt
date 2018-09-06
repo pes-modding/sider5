@@ -1,7 +1,7 @@
 Sider 5 Lua Module Programmers Guide
 ====================================
-For sider.dll version: 5.0.1
-August 31, 2018
+For sider.dll version: 5.0.2
+September 6, 2018
 
 
 
@@ -104,8 +104,69 @@ of the game. As more scripts/modules are created by the community
 the context object will probably also change, and include more and more
 information about the game.
 
-As of 5.0.1 release, the context object does not yet have anything,
-but in future releases it will become useful.
+As of 5.0.2 release, the context object has the following:
+
+ctx.home_team  - id of the home team of the current match, after
+                 it is selected in the exhibition match, or the next
+                 match is determined in the league mode.
+
+ctx.away_team  - id of the away team of the current match, after
+                 it is selected in the exhibition match, or the next
+                 match is determined in the league mode.
+
+ctx.tournament_id  -  numeric id of the current tournament. See
+                      doc/tournament.txt file for the list
+                      of ids for all of the game's tournaments.
+
+ctx.match_id   - some sort of number, which seems to indicate where
+                 in the season you currently are. However, the exact
+                 meaning of this id is unclear. Maybe you can figure
+                 it out and tell me ;-)
+
+ctx.match_leg  - set to 1 or 2, if this is 1st leg or 2nd leg of
+                 a two-legged knock-out match.
+
+ctx.match_info - meaning of this field varies, depending on the type
+                 of tournament:
+                     league: number of league matches already played
+                     cup/play-off:
+                         46 - first round of play-off,
+                         47 - second round of play-off,
+                         51 - quaterfinal,
+                         52 - semifinal,
+                         53 - final
+                 You can use this together with ctx.tournament_id to
+                 identify a final match of a particular tournament.
+
+ctx.stadium    - numeric id of the stadium that will be used (or was
+                 last used, if the stadium for the next match hasn't
+                 been chosen yet by the game logic)
+
+ctx.stadium_choice - This field is set when the game is in one of the
+                     exhibition modes, and the stadium is allowed to
+                     be selected via the menu. Once the actual final
+                     selection of the stadium is made (right after the
+                     "set_stadium" event fires), the "stadium_choice"
+                     field get removed from the context.
+                     Special values:
+                          253 - home stadium
+                          254 - random stadium
+                          255 - not chosen yet
+
+ctx.timeofday  - The values are: 0 - Day, 1 - Night. Same as with
+                 stadium, it represents the time of day of the coming
+                 match, or the last one, if the stadium isn't set yet
+                 for the next match.
+
+ctx.season     - The values are: 0 - Summer, 1 - Winter.
+
+ctx.weather    - The values are: 0 - Fine, 1 - Rainy, 2 - Snowy
+
+ctx.weather_effects - The known values are:
+                        2 - enforce weather effects (rain/snow falling)
+
+ctx.match_time - Duration of the match in minutes.
+
 
 The context object also contains a register function, which has the
 following signature:

@@ -1,7 +1,7 @@
 Sider 5 for Pro Evolution Soccer 2019
 =====================================
 Copyright (C) 2018 juce
-Version 5.0.1
+Version 5.0.2
 
 
 

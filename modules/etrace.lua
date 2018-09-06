@@ -39,7 +39,7 @@ function m.set_conditions(ctx, options)
 end
 
 function m.trophy_rewrite(ctx, tournament_id)
-    tlog("trophy_rewrite: %s", t2s(options))
+    tlog("trophy_rewrite: %s", tournament_id)
     tlog("ctx: %s", t2s(ctx))
 end
 

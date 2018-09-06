@@ -1521,7 +1521,7 @@ void sider_set_settings(STAD_STRUCT *dest_ss, STAD_STRUCT *src_ss)
     ok = ok || (mi && (mi->db0x03 == 0x06) && (mi->db0x17 == 0x17));
     if (!ok) {
         // safety check
-        logu_("%02x %02x\n", mi->db0x03, mi->db0x17);
+        DBG(16) logu_("%02x %02x\n", mi->db0x03, mi->db0x17);
         return;
     }
 
@@ -1579,7 +1579,7 @@ void sider_set_settings(STAD_STRUCT *dest_ss, STAD_STRUCT *src_ss)
 DWORD sider_trophy_check(WORD trophy_id)
 {
     WORD tid = trophy_id;
-    logu_("trophy check:: trophy-id: 0x%0x\n", tid);
+    DBG(16) logu_("trophy check:: trophy-id: 0x%0x\n", tid);
     if (_config->_lua_enabled) {
         // lua callbacks
         list<module_t*>::iterator i;
@@ -1591,7 +1591,7 @@ DWORD sider_trophy_check(WORD trophy_id)
                 trophy_map_t::iterator it = _trophy_map->find(new_tournament_id);
                 if (it != _trophy_map->end()) {
                     new_tid = it->second;
-                    logu_("trophy check:: rewrite trophy-id: 0x%x --> 0x%x\n", tid, new_tid);
+                    DBG(16) logu_("trophy check:: rewrite trophy-id: 0x%x --> 0x%x\n", tid, new_tid);
                     tid = new_tid;
                     break;
                 }

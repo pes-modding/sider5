@@ -49,6 +49,8 @@ local tcontent = nil
 local remap = {
     [86] = { 43, "eng_community_shield" },
     [17] = { 20, "eng_premier_league" },
+    [18] = { 20, "ita_serie_a" },
+    [18] = { 21, "rus_premier_league" },
 }
 
 function m.trophy_rewrite(ctx, tournament_id)

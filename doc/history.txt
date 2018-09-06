@@ -5,8 +5,10 @@ Sider 5 Release History
 September 6, 2018
 v5.0.2
 - Lua scripting: support for context fields and events
-  set_teams, set_conditions, set_stadium, set_match_time,
-  trophy_check)
+  set_teams, set_conditions, set_stadium, set_match_time, trophy_rewrite
+- Trophy rewrites now preserve correct commentary and are only
+  rewriting trophy scenes before and after the match.
+- more example Lua modules: stadswitch.lua, timeaccel.lua
 
 
 August 31, 2018

@@ -1763,7 +1763,7 @@ void hook_call_with_head_and_tail(BYTE *loc, BYTE *p, BYTE *head, size_t head_si
         memcpy(loc+head_size+2, &p, sizeof(BYTE*));  // mov rax,<target_addr>
         memcpy(loc+head_size+10, "\xff\xd0", 2);     // call rax
         memcpy(loc+head_size+12, tail, tail_size);   // tail rax
-        log_(L"hook_call_with_head: hooked at %p (target: %p)\n", loc, p);
+        log_(L"hook_call_with_head_and_tail: hooked at %p (target: %p)\n", loc, p);
     }
 }
 

@@ -244,6 +244,108 @@ loading a 2nd player kit instead of a 1st goalkeeper kit, so your
 goalkeepers end up wearing 2nd kit of outfield players.
 
 
+- Event name: "set_teams"
+Handler function: f(ctx, home_team, away_team)
+Return value expected: nil
+
+This event fires after both home and away teams are determined -
+either during the team selection in exhibition game, or when the next
+match becomes known in a league or a cup mode (League, Master League,
+UCL, Europa League, etc.)
+The team ids are also set as "home_team" and "away_team" fields in
+the context object so that they can be used later, if needed.
+
+
+- Event name: "set_match_time"
+Handler function: f(ctx, minutes)
+Return value expected: nil or integer
+
+This event occurs, when the game sets the mach duration. If your handler
+function returns an integer, then this value will be used as the match
+time in minutes. This way you can accelerate or slow down the matches
+beyound the allowed 5-30 minute range. See timeaccel.lua - for an example
+of such script.
+
+
+- Event name: "set_stadium"
+Handler function: f(ctx, options)
+Return value expected: nil or number or table
+
+This event fires, when the stadium settings are chosen for the upcoming
+match. The "options" parameter is a Lua table which contains the following
+keys: "stadium", "timeofday", "weather", "weather_effects", "season".
+Each of these has an integer value, as the game uses:
+for stadium - it is the id of the stadium,
+for timeofday: 0 - means Day, 1 - means Night;
+for weather: 0 - Fine (sunny), 1 - Rain, 2 - Snow;
+for weather_effects: 2 - means enforce falling rain/snow, other values - unknown
+for season: 0 - Summer, 1 - Winter
+
+You handler function can either return nil, which means that other modules
+can receive the event and process it. Or, the handler can return an stadium
+id - an integer - to switch the stadium to another one. Be careful though:
+sider doesn't check for correctness of values, so if you switch to a
+non-existent stadium, the game will probably crash or go into infinite
+"loading" loop. For an example usage - see stadswitch.lua module.
+
+( For backwards compatibility, returning a table like this:
+{ stadium = <stadium-id> } is also supported. However, any other keys in
+that table will be ignored. )
+
+To change weather, timeofday and season - use a different event, called:
+"set_conditions", which is documented further down in this document.
+
+
+- Event name: "set_conditions"
+Handler function: f(ctx, options)
+Return value expected: nil or table
+
+This event fires, when the stadium settings are chosen for the upcoming
+match. The "options" parameter is a Lua table which contains the following
+keys: "stadium", "timeofday", "weather", "weather_effects", "season".
+Each of these has an integer value, as the game uses:
+for stadium - it is the id of the stadium,
+for timeofday: 0 - means Day, 1 - means Night;
+for weather: 0 - Fine (sunny), 1 - Rain;
+for weather_effects: 2 - means enforce rain falling, other values - unknown
+for season: 0 - Summer, 1 - Winter
+
+You handler function can either return nil, which means that other modules
+can receive the event and process it. Or, the handler can return a table
+of options, which are either modified or not. Returning a table of options
+stops further propagation of the event. You cannot change the stadium id -
+for that use "set_stadium" event. But you can change any of the other
+three settings: just assign them different values.
+For an example usage - see stadswitch.lua module.
+
+
+- Event name: "after_set_conditions"
+Handler function: f(ctx)
+Return value expected: nil
+
+This event fires after "set_conditions". It doesn't allow the handler
+to change anything, but it does provide the context object so that the
+modules can react in whatever way they want.
+
+
+-- Event name: "trophy_rewrite"
+Handler function: f(ctx, tournament_id)
+Return value expected: nil or number
+
+This event fires before the game checks if trophy scenes need to be shown
+before (and after) the match. This is a specialized event, and is probably
+not very useful for modules other than "trophy.lua". The "trophy.lua"
+uses to enforce trophy scenes from specific tournaments. This makes it
+possible to have trophy celebrations for tournaments that do not have
+them in the original game content. (See trophy.lua, if you are really
+interested in how this works)
+
+
+IMPORTANT NOTE: Some events can fire multiple times for the same "action".
+That is normal, it's just how the game works internally. Make sure your
+module logic can handle such situations correctly.
+
+
 
 5. Logging
 ~~~~~~~~~~

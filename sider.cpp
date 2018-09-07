@@ -395,6 +395,12 @@ public:
     BYTE *_hp_at_set_minutes;
     BYTE *_hp_at_sider;
 
+    bool _hook_set_team_id;
+    bool _hook_set_settings;
+    bool _hook_context_reset;
+    bool _hook_trophy_check;
+    bool _hook_trophy_table;
+
     ~config_t() {}
     config_t(const wstring& section_name, const wchar_t* config_ini) :
                  _section_name(section_name),
@@ -422,6 +428,11 @@ public:
                  _hp_at_set_minutes(NULL),
                  _hp_at_sider(NULL),
                  _hp_at_trophy_table(NULL),
+                 _hook_set_team_id(true),
+                 _hook_set_settings(true),
+                 _hook_context_reset(true),
+                 _hook_trophy_check(true),
+                 _hook_trophy_table(true),
                  _num_minutes(0)
     {
         wchar_t settings[32767];
@@ -517,6 +528,26 @@ public:
 
         _num_minutes = GetPrivateProfileInt(_section_name.c_str(),
             L"match.minutes", _num_minutes,
+            config_ini);
+
+        _hook_set_team_id = GetPrivateProfileInt(_section_name.c_str(),
+            L"hook.set-team-id", _hook_set_team_id,
+            config_ini);
+
+        _hook_set_settings = GetPrivateProfileInt(_section_name.c_str(),
+            L"hook.set-settings", _hook_set_settings,
+            config_ini);
+
+        _hook_context_reset = GetPrivateProfileInt(_section_name.c_str(),
+            L"hook.context-reset", _hook_context_reset,
+            config_ini);
+
+        _hook_trophy_table = GetPrivateProfileInt(_section_name.c_str(),
+            L"hook.trophy-table", _hook_trophy_table,
+            config_ini);
+
+        _hook_trophy_check = GetPrivateProfileInt(_section_name.c_str(),
+            L"hook.trophy-check", _hook_trophy_check,
             config_ini);
     }
 };
@@ -2155,6 +2186,14 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"close.on.exit = %d\n", _config->_close_sider_on_exit);
     log_(L"match.minutes = %d\n", _config->_num_minutes);
 
+    log_(L"--------------------------\n");
+    log_(L"hook.set-team-id = %d\n", _config->_hook_set_team_id);
+    log_(L"hook.set-settings = %d\n", _config->_hook_set_settings);
+    log_(L"hook.context-reset = %d\n", _config->_hook_context_reset);
+    log_(L"hook.trophy-table = %d\n", _config->_hook_trophy_table);
+    log_(L"hook.trophy-check = %d\n", _config->_hook_trophy_check);
+    log_(L"--------------------------\n");
+
     for (list<wstring>::iterator it = _config->_cpk_roots.begin();
             it != _config->_cpk_roots.end();
             it++) {
@@ -2326,20 +2365,31 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
         }
 
         if (_config->_lua_enabled) {
+            log_(L"-------------------------------\n");
             log_(L"sider_set_team_id: %p\n", sider_set_team_id_hk);
             log_(L"sider_set_settings: %p\n", sider_set_settings_hk);
             log_(L"sider_trophy_check: %p\n", sider_trophy_check_hk);
+            log_(L"sider_trophy_table: %p\n", sider_trophy_table_hk);
             log_(L"sider_context_reset: %p\n", sider_context_reset_hk);
 
-            hook_call_with_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
-                (BYTE*)pattern_set_team_id_tail, sizeof(pattern_set_team_id_tail)-1);
-            hook_call(_config->_hp_at_set_settings, (BYTE*)sider_set_settings_hk, 0);
-            hook_call_rcx(_config->_hp_at_trophy_check, (BYTE*)sider_trophy_check_hk, 0);
-            hook_call_rcx(_config->_hp_at_trophy_table, (BYTE*)sider_trophy_table_hk, 0);
-            hook_call(_config->_hp_at_context_reset, (BYTE*)sider_context_reset_hk, 6);
+            if (_config->_hook_set_team_id)
+                hook_call_with_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
+                    (BYTE*)pattern_set_team_id_tail, sizeof(pattern_set_team_id_tail)-1);
+            if (_config->_hook_set_settings)
+                hook_call_with_head_and_tail(_config->_hp_at_set_settings, (BYTE*)sider_set_settings_hk,
+                    (BYTE*)pattern_set_settings_head, sizeof(pattern_set_settings_head)-1,
+                    (BYTE*)pattern_set_settings_tail, sizeof(pattern_set_settings_tail)-1);
+            if (_config->_hook_trophy_check)
+                hook_call_rcx(_config->_hp_at_trophy_check, (BYTE*)sider_trophy_check_hk, 0);
+            if (_config->_hook_trophy_table)
+                hook_call_rcx(_config->_hp_at_trophy_table, (BYTE*)sider_trophy_table_hk, 0);
+            if (_config->_hook_context_reset)
+                hook_call(_config->_hp_at_context_reset, (BYTE*)sider_context_reset_hk, 6);
+            log_(L"-------------------------------\n");
         }
 
         if (_config->_free_side_select) {
+            log_(L"sider_free_select: %p\n", sider_free_select_hk);
             hook_call_rcx(_config->_hp_at_sider, (BYTE*)sider_free_select_hk, 0);
         }
 

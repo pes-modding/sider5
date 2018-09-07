@@ -101,7 +101,12 @@ static BYTE pattern_set_settings[17] =
     "\x89\x81\x98\x00\x00\x00"
     "\x48\x89\xc8"
     "\xc3";
-static int offs_set_settings = 0;
+static int offs_set_settings = -13;
+static BYTE pattern_set_settings_head[5] =
+    "\x48\x83\xec\x08";  // sub rsp,8
+static BYTE pattern_set_settings_tail[10] =
+    "\x48\x83\xc4\x08"   // add rsp,8
+    "\x90\x90\x90\x90\x90";
 
 /*
 000000015110A827 | 4C 8D A5 F0 C3 00 00                  | lea r12,qword ptr ss:[rbp+C3F0] |

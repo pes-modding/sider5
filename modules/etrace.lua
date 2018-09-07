@@ -38,8 +38,8 @@ function m.set_conditions(ctx, options)
     tlog("ctx: %s", t2s(ctx))
 end
 
-function m.trophy_rewrite(ctx, tournament_id)
-    tlog("trophy_rewrite: %s", tournament_id)
+function m.after_set_conditions(ctx)
+    tlog("after_set_conditions")
     tlog("ctx: %s", t2s(ctx))
 end
 
@@ -48,7 +48,7 @@ function m.init(ctx)
    ctx.register("set_match_time", m.set_match_time)
    ctx.register("set_stadium", m.set_stadium)
    ctx.register("set_conditions", m.set_conditions)
-   ctx.register("trophy_rewrite", m.trophy_rewrite)
+   ctx.register("after_set_conditions", m.after_set_conditions)
 end
 
 return m

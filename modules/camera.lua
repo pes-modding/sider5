@@ -1,15 +1,16 @@
 --[[
 =========================
 
-camera module v1.1
+camera module v1.2
 Game research by: nesa24
-Requires: sider.dll 5.0.1
+Requires: sider.dll 5.0.2
 
 =========================
 --]]
 
 local m = {}
 local hex = memory.hex
+local base_addr
 
 local game_info = {
     camera_range_zoom   = { 0x04, "f", 4},   --> default: 19.05
@@ -29,20 +30,8 @@ local function load_ini(ctx, filename)
     return t
 end
 
-function m.init(ctx)
+local function apply_settings(ctx)
     local settings = load_ini(ctx, "camera.ini")
-
-    -- find the base address of the block of camera settings
-    local pattern = "\x84\xc0\x41\x0f\x45\xfe\xf3\x0f\x10\x5b\x0c"
-    local loc = memory.search_process(pattern)
-    if not loc then
-        log("problem: unable to find code pattern. No tweaks done")
-        return
-    end
-    loc = loc + #pattern
-    local rel_offset = memory.unpack("i32", memory.read(loc + 3, 4))
-    local base_addr = loc + rel_offset + 7
-    log(string.format("Camera block base address: %s", hex(base_addr)))
 
     -- apply settings
     for name,value in pairs(settings) do
@@ -57,6 +46,29 @@ function m.init(ctx)
                 name, hex(addr), old_value, new_value))
         end
     end
+end
+
+function m.set_teams(ctx, home, away)
+    if base_addr then
+        apply_settings(ctx)
+    end
+end
+
+function m.init(ctx)
+    -- find the base address of the block of camera settings
+    local pattern = "\x84\xc0\x41\x0f\x45\xfe\xf3\x0f\x10\x5b\x0c"
+    local loc = memory.search_process(pattern)
+    if not loc then
+        log("problem: unable to find code pattern. No tweaks done")
+        return
+    end
+    loc = loc + #pattern
+    local rel_offset = memory.unpack("i32", memory.read(loc + 3, 4))
+    base_addr = loc + rel_offset + 7
+    log(string.format("Camera block base address: %s", hex(base_addr)))
+
+    -- register for events
+    ctx.register("set_teams", m.set_teams)
 end
 
 return m

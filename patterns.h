@@ -78,19 +78,6 @@ static BYTE pattern_set_team_id_tail[14] =
     "\x90\x90\x90\x90\x90\x90\x90\x90";
 
 /*
-00000001412A4FD5 | 0F B6 82 8B 00 00 00               | movzx eax,byte ptr ds:[rdx+8B]          |
-00000001412A4FDC | 88 81 8B 00 00 00                  | mov byte ptr ds:[rcx+8B],al             |
-00000001412A4FE2 | 48 8B C1                           | mov rax,rcx                             |
-00000001412A4FE5 | C3                                 | ret                                     |
-static BYTE pattern_set_settings[18] =
-    "\x0f\xb6\x82\x8b\x00\x00\x00"
-    "\x88\x81\x8b\x00\x00\x00"
-    "\x48\x8b\xc1"
-    "\xc3";
-static int offs_set_settings = 0;
-*/
-
-/*
 000000014ACD9D36 | 8B 82 98 00 00 00                    | mov eax,dword ptr ds:[rdx+98]        |
 000000014ACD9D3C | 89 81 98 00 00 00                    | mov dword ptr ds:[rcx+98],eax        |
 000000014ACD9D42 | 48 89 C8                             | mov rax,rcx                          | set_settings

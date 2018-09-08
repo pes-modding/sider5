@@ -192,4 +192,29 @@ static BYTE pattern_trophy_table[18] =
     "\x48\x31\xe1";
 static int offs_trophy_table = 30;
 
+// ball name
+
+/*
+000000014D9A0703 | 80 79 04 00                          | cmp byte ptr ds:[rcx+4],0        | before ball name copy
+000000014D9A0707 | 48 8D 51 04                          | lea rdx,qword ptr ds:[rcx+4]     | rdx:"Ordem V EPL"
+000000014D9A070B | 75 12                                | jne pes2019.14D9A071F            |
+000000014D9A070D | 45 31 C0                             | xor r8d,r8d                      |
+000000014D9A0710 | 48 89 C1                             | mov rcx,rax                      |
+...
+000000014D9A071F | 49 83 C8 FF                          | or r8,FFFFFFFFFFFFFFFF           |
+000000014D9A0723 | 49 FF C0                             | inc r8                           |
+000000014D9A0726 | 42 80 3C 02 00                       | cmp byte ptr ds:[rdx+r8],0       |
+000000014D9A072B | 75 F6                                | jne pes2019.14D9A0723            |
+000000014D9A072D | 48 89 C1                             | mov rcx,rax                      | rcx:dst,rdx:src,r8:len
+*/
+static BYTE pattern_ball_name[] =
+    "\x80\x79\x04\x00"
+    "\x48\x8d\x51\x04"
+    "\x75\x12"
+    "\x45\x31\xc0"
+    "\x48\x89\xc1";
+static int offs_ball_name = 28;
+static BYTE pattern_ball_name_head[2] = "\x50";
+static BYTE pattern_ball_name_tail[2] = "\x58";
+
 #endif

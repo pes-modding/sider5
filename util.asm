@@ -16,6 +16,7 @@ extern sider_trophy_check:proc
 extern sider_context_reset:proc
 extern sider_free_select:proc
 extern sider_trophy_table:proc
+extern sider_ball_name:proc
 
 .code
 sider_read_file_hk proc
@@ -210,5 +211,29 @@ sider_trophy_table_hk proc
         ret
 
 sider_trophy_table_hk endp
+
+;000000014D9A071F | 49 83 C8 FF                          | or r8,FFFFFFFFFFFFFFFF           |
+;000000014D9A0723 | 49 FF C0                             | inc r8                           |
+;000000014D9A0726 | 42 80 3C 02 00                       | cmp byte ptr ds:[rdx+r8],0       |
+;000000014D9A072B | 75 F6                                | jne pes2019.14D9A0723            |
+;000000014D9A072D | 48 89 C1                             | mov rcx,rax                      | rcx:dst,rdx:src,r8:len
+
+sider_ball_name_hk proc
+
+        sub     rsp,38h
+        mov     [rsp+20h],rcx
+        mov     [rsp+28h],rdx
+        mov     rcx,rdx
+        call    sider_ball_name
+        mov     rdx,rax
+        mov     rcx,[rsp+20h]
+        or      r8,0ffffffffffffffffh
+next:   inc     r8
+        cmp     byte ptr [rdx+r8],0
+        jne     next
+        add     rsp,38h
+        ret
+
+sider_ball_name_hk endp
 
 end

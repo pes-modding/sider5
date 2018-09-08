@@ -60,22 +60,25 @@ static BYTE pattern_set_team_id[26] =
     "\x4c\x01\xc1";
 static int offs_set_team_id = 0;
 
+static BYTE pattern_set_team_id_head[2] =
+    "\x50"; // push rax
+
 /*
-000000014126DF0C | 83 F8 02                           | cmp eax,2                               |
-000000014126DF0F | 7D 0D                              | jge pes2018.14126DF1E                   |
-000000014126DF11 | 90                                 | nop                                     |
-000000014126DF12 | 90                                 | nop                                     |
-000000014126DF13 | 90                                 | nop                                     |
-000000014126DF14 | 90                                 | nop                                     |
-000000014126DF15 | 90                                 | nop                                     |
-000000014126DF16 | 90                                 | nop                                     |
-000000014126DF17 | 90                                 | nop                                     |
-000000014126DF18 | 90                                 | nop                                     |
+000000014D9310DD | 58                                   | pop rax                                  |
+000000014D9310DE | 83 F8 02                             | cmp eax,2                                |
+000000014D9310E1 | 7D 0B                                | jge pes2019.14D9310EE                    |
+000000014D9310E3 | 90                                   | nop                                      |
+000000014D9310E4 | 90                                   | nop                                      |
+000000014D9310E5 | 90                                   | nop                                      |
+000000014D9310E6 | 90                                   | nop                                      |
+000000014D9310E7 | 90                                   | nop                                      |
+000000014D9310E8 | 90                                   | nop                                      |
 */
-static BYTE pattern_set_team_id_tail[14] =
+static BYTE pattern_set_team_id_tail[13] =
+    "\x58"
     "\x83\xf8\x02"
-    "\x7d\x0d"
-    "\x90\x90\x90\x90\x90\x90\x90\x90";
+    "\x7d\x0b"
+    "\x90\x90\x90\x90\x90\x90";
 
 /*
 000000014ACD9D36 | 8B 82 98 00 00 00                    | mov eax,dword ptr ds:[rdx+98]        |

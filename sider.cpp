@@ -1502,6 +1502,11 @@ DWORD decode_team_id(DWORD team_id_encoded)
 void sider_set_team_id(DWORD *dest, DWORD *team_id_encoded, DWORD offset)
 {
     bool is_home = (offset == 0);
+    if (!dest || !team_id_encoded) {
+        // safety check
+        return;
+    }
+
     if (is_home) {
         logu_("setting HOME team: %d\n", decode_team_id(*team_id_encoded));
     }
@@ -2373,7 +2378,8 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
             log_(L"sider_context_reset: %p\n", sider_context_reset_hk);
 
             if (_config->_hook_set_team_id)
-                hook_call_with_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
+                hook_call_with_head_and_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
+                    (BYTE*)pattern_set_team_id_head, sizeof(pattern_set_team_id_head)-1,
                     (BYTE*)pattern_set_team_id_tail, sizeof(pattern_set_team_id_tail)-1);
             if (_config->_hook_set_settings)
                 hook_call_with_head_and_tail(_config->_hp_at_set_settings, (BYTE*)sider_set_settings_hk,

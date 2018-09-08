@@ -97,7 +97,7 @@ sider_set_team_id_hk proc
         push    r9
         push    r10
         push    r11
-        sub     rsp,40h
+        sub     rsp,38h
         movsxd  rax,dword ptr [r8]
         mov     [rsp+30h],rax
         cmp     eax,2
@@ -111,7 +111,7 @@ sider_set_team_id_hk proc
         mov     rcx,[rsp+20h]
         mov     r8,[rsp+28h]
         mov     rax,[rsp+30h]
-done:   add     rsp,40h
+done:   add     rsp,38h
         pop     r11
         pop     r10
         pop     r9

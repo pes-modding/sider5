@@ -2,6 +2,13 @@ Sider 5 Release History
 =======================
 
 
+September 8, 2018
+v5.0.3
+- corrected stack alignment for Lua events. This was causing crashes
+  for some users, but is fixed now.
+- added "get_ball_name" event (useful for ball-server)
+
+
 September 6, 2018
 v5.0.2
 - Lua scripting: support for context fields and events

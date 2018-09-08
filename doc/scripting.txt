@@ -1,7 +1,7 @@
 Sider 5 Lua Module Programmers Guide
 ====================================
-For sider.dll version: 5.0.2
-September 6, 2018
+For sider.dll version: 5.0.3
+September 8, 2018
 
 
 
@@ -104,7 +104,7 @@ of the game. As more scripts/modules are created by the community
 the context object will probably also change, and include more and more
 information about the game.
 
-As of 5.0.2 release, the context object has the following:
+As of 5.0.3 release, the context object has the following:
 
 ctx.home_team  - id of the home team of the current match, after
                  it is selected in the exhibition match, or the next
@@ -326,6 +326,16 @@ Return value expected: nil
 This event fires after "set_conditions". It doesn't allow the handler
 to change anything, but it does provide the context object so that the
 modules can react in whatever way they want.
+
+
+-- Event name: "get_ball_name"
+Handler function: f(ctx, ballname)
+Return value expected: nil or string
+
+This event fires, when the game prepares to display the ball name.
+Your handler function can change it, if it returns a string instead of nil.
+The string needs to be in UTF-8 encoding to correctly render non-ASCII
+characters.
 
 
 -- Event name: "trophy_rewrite"

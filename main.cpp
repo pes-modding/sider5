@@ -75,7 +75,7 @@ HWND BuildWindow(int nCmdShow)
         style,
         CW_USEDEFAULT,  // initial x coordinate
         CW_USEDEFAULT,  // initial y coordinate
-        210, 70,   // width and height of the window
+        230, 70,   // width and height of the window
         NULL,           // no parent window.
         NULL,           // no menu
         NULL,           // no creator
@@ -88,7 +88,7 @@ HWND BuildWindow(int nCmdShow)
     HWND heightLabel = CreateWindowEx(
             xstyle, L"Static", 
             L"Sider for Pro Evolution Soccer 2019", style,
-            10, 10, 260, 50, 
+            20, 10, 210, 50,
             retval, NULL, NULL, NULL);
 
     HGDIOBJ hObj = GetStockObject(DEFAULT_GUI_FONT);

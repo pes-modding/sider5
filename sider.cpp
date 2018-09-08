@@ -208,9 +208,9 @@ extern "C" void sider_set_settings(STAD_STRUCT *dest_ss, STAD_STRUCT *src_ss);
 
 extern "C" void sider_set_settings_hk();
 
-extern "C" DWORD sider_trophy_check(WORD tournament_id);
+extern "C" WORD sider_trophy_check(WORD tournament_id);
 
-extern "C" DWORD sider_trophy_check_hk(WORD tournament_id);
+extern "C" WORD sider_trophy_check_hk(WORD tournament_id);
 
 extern "C" void sider_context_reset();
 
@@ -1612,7 +1612,7 @@ void sider_set_settings(STAD_STRUCT *dest_ss, STAD_STRUCT *src_ss)
         dest_ss->stadium, dest_ss->timeofday, dest_ss->weather, dest_ss->season);
 }
 
-DWORD sider_trophy_check(WORD trophy_id)
+WORD sider_trophy_check(WORD trophy_id)
 {
     WORD tid = trophy_id;
     DBG(16) logu_("trophy check:: trophy-id: 0x%0x\n", tid);

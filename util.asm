@@ -231,6 +231,8 @@ sider_ball_name_hk proc
 next:   inc     r8
         cmp     byte ptr [rdx+r8],0
         jne     next
+        mov     rax,[rsp+40h]
+        mov     rcx,rax
         add     rsp,38h
         ret
 

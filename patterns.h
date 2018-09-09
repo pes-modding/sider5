@@ -207,14 +207,14 @@ static int offs_trophy_table = 30;
 000000014D9A072B | 75 F6                                | jne pes2019.14D9A0723            |
 000000014D9A072D | 48 89 C1                             | mov rcx,rax                      | rcx:dst,rdx:src,r8:len
 */
-static BYTE pattern_ball_name[] =
+static BYTE pattern_ball_name[17] =
     "\x80\x79\x04\x00"
     "\x48\x8d\x51\x04"
     "\x75\x12"
     "\x45\x31\xc0"
     "\x48\x89\xc1";
 static int offs_ball_name = 28;
-static BYTE pattern_ball_name_head[2] = "\x50";
-static BYTE pattern_ball_name_tail[2] = "\x58";
+static BYTE pattern_ball_name_head[3] = "\x50\x50";
+static BYTE pattern_ball_name_tail[4] = "\x58\x58\x90";
 
 #endif

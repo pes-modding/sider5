@@ -1,7 +1,6 @@
 #define UNICODE
 
 //#include "stdafx.h"
-#include <time.h>
 #include <stdio.h>
 #include <windows.h>
 #include <list>
@@ -242,18 +241,18 @@ HANDLE _mh = NULL;
 
 typedef struct {
     void *value;
-    __time64_t expires;
+    DWORD expires;
 } cache_map_value_t;
 
 typedef unordered_map<string,cache_map_value_t> cache_map_t;
 
 class cache_t {
     cache_map_t _map;
-    int _ttl_sec;
+    DWORD _ttl_msec;
     CRITICAL_SECTION *_kcs;
 public:
-    cache_t(CRITICAL_SECTION *cs, int ttl_sec) :
-        _ttl_sec(ttl_sec), _kcs(cs) {}
+    cache_t(CRITICAL_SECTION *cs, DWORD ttl_sec) :
+        _ttl_msec(ttl_sec * 1000), _kcs(cs) {}
     ~cache_t() {
         log_(L"cache: size:%d\n", _map.size());
     }
@@ -261,8 +260,7 @@ public:
         EnterCriticalSection(_kcs);
         cache_map_t::iterator i = _map.find(filename);
         if (i != _map.end()) {
-            __time64_t ltime;
-            _time64(&ltime);
+            DWORD ltime = GetTickCount();
             //logu_("key_cache::lookup: %s %llu > %llu\n", filename, i->second.expires, ltime);
             if (i->second.expires > ltime) {
                 // hit
@@ -285,12 +283,10 @@ public:
         return false;
     }
     void put(char *filename, void *value) {
-        EnterCriticalSection(_kcs);
-        __time64_t ltime;
-        _time64(&ltime);
+        DWORD ltime = GetTickCount();
         cache_map_value_t v;
         v.value = value;
-        v.expires = ltime + _ttl_sec;
+        v.expires = ltime + _ttl_msec;
         /*
         logu_("key_cache::put: key = %s\n", filename);
         if (v.key) {
@@ -300,6 +296,7 @@ public:
             log_(L"key_cache::put: NULL, %llu\n", v.expires);
         }
         */
+        EnterCriticalSection(_kcs);
         pair<cache_map_t::iterator,bool> res = _map.insert(
             pair<string,cache_map_value_t>(filename, v));
         if (!res.second) {
@@ -1765,7 +1762,7 @@ void hook_call(BYTE *loc, BYTE *p, size_t nops) {
     }
     DWORD protection = 0;
     DWORD newProtection = PAGE_EXECUTE_READWRITE;
-    if (VirtualProtect(loc, 16, newProtection, &protection)) {
+    if (VirtualProtect(loc, 12 + nops, newProtection, &protection)) {
         memcpy(loc, "\x48\xb8", 2);
         memcpy(loc+2, &p, sizeof(BYTE*));  // mov rax,<target_addr>
         memcpy(loc+10, "\xff\xd0", 2);      // call rax
@@ -1782,7 +1779,7 @@ void hook_call_rcx(BYTE *loc, BYTE *p, size_t nops) {
     }
     DWORD protection = 0;
     DWORD newProtection = PAGE_EXECUTE_READWRITE;
-    if (VirtualProtect(loc, 16, newProtection, &protection)) {
+    if (VirtualProtect(loc, 12 + nops, newProtection, &protection)) {
         memcpy(loc, "\x48\xb9", 2);
         memcpy(loc+2, &p, sizeof(BYTE*));  // mov rcx,<target_addr>
         memcpy(loc+10, "\xff\xd1", 2);      // call rcx
@@ -1799,7 +1796,7 @@ void hook_call_rdx(BYTE *loc, BYTE *p, size_t nops) {
     }
     DWORD protection = 0;
     DWORD newProtection = PAGE_EXECUTE_READWRITE;
-    if (VirtualProtect(loc, 16, newProtection, &protection)) {
+    if (VirtualProtect(loc, 12 + nops, newProtection, &protection)) {
         memcpy(loc, "\x48\xba", 2);
         memcpy(loc+2, &p, sizeof(BYTE*));  // mov rcx,<target_addr>
         memcpy(loc+10, "\xff\xd2", 2);      // call rcx
@@ -1816,7 +1813,7 @@ void hook_call_with_tail(BYTE *loc, BYTE *p, BYTE *tail, size_t tail_size) {
     }
     DWORD protection = 0;
     DWORD newProtection = PAGE_EXECUTE_READWRITE;
-    if (VirtualProtect(loc, 16, newProtection, &protection)) {
+    if (VirtualProtect(loc, 12 + tail_size, newProtection, &protection)) {
         memcpy(loc, "\x48\xb8", 2);
         memcpy(loc+2, &p, sizeof(BYTE*));  // mov rax,<target_addr>
         memcpy(loc+10, "\xff\xd0", 2);      // call rax
@@ -1831,7 +1828,7 @@ void hook_call_with_head_and_tail(BYTE *loc, BYTE *p, BYTE *head, size_t head_si
     }
     DWORD protection = 0 ;
     DWORD newProtection = PAGE_EXECUTE_READWRITE;
-    if (VirtualProtect(loc, 64, newProtection, &protection)) {
+    if (VirtualProtect(loc, head_size + 12 + tail_size, newProtection, &protection)) {
         memcpy(loc, head, head_size);   // head code
         memcpy(loc+head_size, "\x48\xb8", 2);
         memcpy(loc+head_size+2, &p, sizeof(BYTE*));  // mov rax,<target_addr>
@@ -1847,7 +1844,7 @@ void hook_call_rdx_with_head_and_tail(BYTE *loc, BYTE *p, BYTE *head, size_t hea
     }
     DWORD protection = 0 ;
     DWORD newProtection = PAGE_EXECUTE_READWRITE;
-    if (VirtualProtect(loc, 64, newProtection, &protection)) {
+    if (VirtualProtect(loc, head_size + 12 + tail_size, newProtection, &protection)) {
         memcpy(loc, head, head_size);   // head code
         memcpy(loc+head_size, "\x48\xba", 2);
         memcpy(loc+head_size+2, &p, sizeof(BYTE*));  // mov rdx,<target_addr>
@@ -2273,6 +2270,7 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"luajit.ext.enabled = %d\n", _config->_luajit_extensions_enabled);
     //log_(L"address-cache.enabled = %d\n", (int)(!_config->_ac_off));
     log_(L"key-cache.ttl-sec = %d\n", _config->_key_cache_ttl_sec);
+    log_(L"rewrite-cache.ttl-sec = %d\n", _config->_rewrite_cache_ttl_sec);
     log_(L"start.minimized = %d\n", _config->_start_minimized);
     log_(L"free.side.select = %d\n", _config->_free_side_select);
     log_(L"close.on.exit = %d\n", _config->_close_sider_on_exit);

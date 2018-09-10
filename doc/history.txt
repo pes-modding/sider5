@@ -2,6 +2,12 @@ Sider 5 Release History
 =======================
 
 
+September 9, 2018
+v5.0.4
+- fixed logic error in hooking for set_team_id event.
+  (this eliminates another scenario, which could lead to crash)
+
+
 September 8, 2018
 v5.0.3
 - corrected stack alignment for Lua events. This was causing crashes

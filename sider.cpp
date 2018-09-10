@@ -1793,6 +1793,23 @@ void hook_call_rcx(BYTE *loc, BYTE *p, size_t nops) {
     }
 }
 
+void hook_call_rdx(BYTE *loc, BYTE *p, size_t nops) {
+    if (!loc) {
+        return;
+    }
+    DWORD protection = 0;
+    DWORD newProtection = PAGE_EXECUTE_READWRITE;
+    if (VirtualProtect(loc, 16, newProtection, &protection)) {
+        memcpy(loc, "\x48\xba", 2);
+        memcpy(loc+2, &p, sizeof(BYTE*));  // mov rcx,<target_addr>
+        memcpy(loc+10, "\xff\xd2", 2);      // call rcx
+        if (nops) {
+            memset(loc+12, '\x90', nops);  // nop ;one of more nops for padding
+        }
+        log_(L"hook_call_rdx: hooked at %p (target: %p)\n", loc, p);
+    }
+}
+
 void hook_call_with_tail(BYTE *loc, BYTE *p, BYTE *tail, size_t tail_size) {
     if (!loc) {
         return;
@@ -1819,8 +1836,24 @@ void hook_call_with_head_and_tail(BYTE *loc, BYTE *p, BYTE *head, size_t head_si
         memcpy(loc+head_size, "\x48\xb8", 2);
         memcpy(loc+head_size+2, &p, sizeof(BYTE*));  // mov rax,<target_addr>
         memcpy(loc+head_size+10, "\xff\xd0", 2);     // call rax
-        memcpy(loc+head_size+12, tail, tail_size);   // tail rax
+        memcpy(loc+head_size+12, tail, tail_size);   // tail code
         log_(L"hook_call_with_head_and_tail: hooked at %p (target: %p)\n", loc, p);
+    }
+}
+
+void hook_call_rdx_with_head_and_tail(BYTE *loc, BYTE *p, BYTE *head, size_t head_size, BYTE *tail, size_t tail_size) {
+    if (!loc) {
+        return;
+    }
+    DWORD protection = 0 ;
+    DWORD newProtection = PAGE_EXECUTE_READWRITE;
+    if (VirtualProtect(loc, 64, newProtection, &protection)) {
+        memcpy(loc, head, head_size);   // head code
+        memcpy(loc+head_size, "\x48\xba", 2);
+        memcpy(loc+head_size+2, &p, sizeof(BYTE*));  // mov rdx,<target_addr>
+        memcpy(loc+head_size+10, "\xff\xd2", 2);     // call rdx
+        memcpy(loc+head_size+12, tail, tail_size);   // tail code
+        log_(L"hook_call_rdx_with_head_and_tail: hooked at %p (target: %p)\n", loc, p);
     }
 }
 
@@ -2438,7 +2471,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
             log_(L"sider_ball_name: %p\n", sider_ball_name_hk);
 
             if (_config->_hook_set_team_id)
-                hook_call_with_head_and_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
+                hook_call_rdx_with_head_and_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
                     (BYTE*)pattern_set_team_id_head, sizeof(pattern_set_team_id_head)-1,
                     (BYTE*)pattern_set_team_id_tail, sizeof(pattern_set_team_id_tail)-1);
             if (_config->_hook_set_settings)

@@ -94,11 +94,11 @@ sider_lookup_file_hk endp
 
 sider_set_team_id_hk proc
 
-        push    rdx
+        mov     rdx,[rsp+8h]
         push    r9
         push    r10
         push    r11
-        sub     rsp,38h
+        sub     rsp,40h
         movsxd  rax,dword ptr [r8]
         mov     [rsp+30h],rax
         cmp     eax,2
@@ -112,11 +112,10 @@ sider_set_team_id_hk proc
         mov     rcx,[rsp+20h]
         mov     r8,[rsp+28h]
         mov     rax,[rsp+30h]
-done:   add     rsp,38h
+done:   add     rsp,40h
         pop     r11
         pop     r10
         pop     r9
-        pop     rdx
         ret
 
 sider_set_team_id_hk endp
@@ -172,11 +171,23 @@ sider_trophy_check_hk endp
 
 sider_context_reset_hk proc
 
+        push    rcx
+        push    rdx
+        push    r8
+        push    r9
+        push    r10
+        push    r11
         sub     rsp,28h
         mov     qword ptr [rbx+84h],rcx
         mov     qword ptr [rbx+21f74h],0ffffffffh
         call    sider_context_reset
         add     rsp,28h
+        pop     r11
+        pop     r10
+        pop     r9
+        pop     r8
+        pop     rdx
+        pop     rcx
         ret
 
 sider_context_reset_hk endp

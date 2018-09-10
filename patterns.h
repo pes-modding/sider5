@@ -61,10 +61,10 @@ static BYTE pattern_set_team_id[26] =
 static int offs_set_team_id = 0;
 
 static BYTE pattern_set_team_id_head[2] =
-    "\x50"; // push rax
+    "\x52"; // push rdx
 
 /*
-000000014D9310DD | 58                                   | pop rax                                  |
+000000014D9310DD | 5A                                   | pop rdx                                  |
 000000014D9310DE | 83 F8 02                             | cmp eax,2                                |
 000000014D9310E1 | 7D 0B                                | jge pes2019.14D9310EE                    |
 000000014D9310E3 | 90                                   | nop                                      |
@@ -75,7 +75,7 @@ static BYTE pattern_set_team_id_head[2] =
 000000014D9310E8 | 90                                   | nop                                      |
 */
 static BYTE pattern_set_team_id_tail[13] =
-    "\x58"
+    "\x5a"
     "\x83\xf8\x02"
     "\x7d\x0b"
     "\x90\x90\x90\x90\x90\x90";
@@ -92,11 +92,11 @@ static BYTE pattern_set_settings[17] =
     "\x48\x89\xc8"
     "\xc3";
 static int offs_set_settings = -13;
-static BYTE pattern_set_settings_head[5] =
-    "\x48\x83\xec\x08";  // sub rsp,8
-static BYTE pattern_set_settings_tail[10] =
-    "\x48\x83\xc4\x08"   // add rsp,8
-    "\x90\x90\x90\x90\x90";
+static BYTE pattern_set_settings_head[2] =
+    "\x50";  // push rax
+static BYTE pattern_set_settings_tail[13] =
+    "\x58"   // pop rax
+    "\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90\x90";
 
 /*
 000000015110A827 | 4C 8D A5 F0 C3 00 00                  | lea r12,qword ptr ss:[rbp+C3F0] |

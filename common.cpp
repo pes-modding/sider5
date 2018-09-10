@@ -145,7 +145,7 @@ void patch_at_location(BYTE *addr, void *patch, size_t patch_len)
 	    BYTE* bptr = addr;
 	    DWORD protection = 0;
 	    DWORD newProtection = PAGE_EXECUTE_READWRITE;
-	    if (VirtualProtect(bptr, 16, newProtection, &protection)) {
+	    if (VirtualProtect(bptr, patch_len, newProtection, &protection)) {
             memcpy(addr, patch, patch_len);
             log_(L"Patch (size=%d) installed at (%p)\n", patch_len, addr);
         }

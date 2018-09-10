@@ -2332,7 +2332,7 @@ bool all_found(config_t *cfg) {
     }
     if (cfg->_num_minutes > 0) {
         all = all && (
-            cfg->_hp_at_set_min_time > 0 &&
+            //cfg->_hp_at_set_min_time > 0 &&
             cfg->_hp_at_set_max_time > 0 &&
             cfg->_hp_at_set_minutes > 0
         );
@@ -2379,8 +2379,8 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag_len[6] = _config->_lua_enabled ? sizeof(pattern_set_settings)-1 : 0;
     frag_len[7] = _config->_lua_enabled ? sizeof(pattern_trophy_check)-1 : 0;
     frag_len[8] = _config->_lua_enabled ? sizeof(pattern_context_reset)-1 : 0;
-    frag_len[9] = (_config->_num_minutes > 0) ? sizeof(pattern_set_min_time)-1 : 0;
-    frag_len[10] = (_config->_num_minutes > 0) ? sizeof(pattern_set_max_time)-1 : 0;
+    frag_len[9] = 0; //sizeof(pattern_set_min_time)-1;
+    frag_len[10] = sizeof(pattern_set_max_time)-1;
     frag_len[11] = (_config->_num_minutes > 0) ? sizeof(pattern_set_minutes)-1 : 0;
     frag_len[12] = _config->_free_side_select ? sizeof(pattern_sider)-1 : 0;
     frag_len[13] = _config->_lua_enabled ? sizeof(pattern_trophy_table)-1 : 0;
@@ -2488,9 +2488,10 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
             hook_call_rcx(_config->_hp_at_sider, (BYTE*)sider_free_select_hk, 0);
         }
 
+        //patch_at_location(_config->_hp_at_set_min_time, "\x90\x90\x90\x90\x90\x90\x90", 7);
+        patch_at_location(_config->_hp_at_set_max_time, "\x90\x90\x90\x90\x90\x90\x90", 7);
+
         if (_config->_num_minutes != 0) {
-            patch_at_location(_config->_hp_at_set_min_time, "\x90\x90\x90\x90\x90\x90\x90", 7);
-            patch_at_location(_config->_hp_at_set_max_time, "\x90\x90\x90\x90\x90\x90\x90", 7);
 
             if (_config->_num_minutes < 1) {
                 _config->_num_minutes = 1;

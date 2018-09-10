@@ -36,6 +36,7 @@ size_t _file_to_lookup_size = 0;
 using namespace std;
 
 CRITICAL_SECTION _cs;
+CRITICAL_SECTION _tcs;
 lua_State *L = NULL;
 
 struct FILE_HANDLE_INFO {
@@ -252,9 +253,12 @@ class cache_t {
     CRITICAL_SECTION *_kcs;
 public:
     cache_t(CRITICAL_SECTION *cs, DWORD ttl_sec) :
-        _ttl_msec(ttl_sec * 1000), _kcs(cs) {}
+        _ttl_msec(ttl_sec * 1000), _kcs(cs) {
+        InitializeCriticalSection(_kcs);
+    }
     ~cache_t() {
         log_(L"cache: size:%d\n", _map.size());
+        DeleteCriticalSection(_kcs);
     }
     bool lookup(char *filename, void **res) {
         EnterCriticalSection(_kcs);
@@ -1657,13 +1661,15 @@ WORD sider_trophy_check(WORD trophy_id)
             WORD new_tid = tid;
             WORD new_tournament_id = _tournament_id;
             if (module_trophy_rewrite(m, _tournament_id, &new_tournament_id)) {
+                EnterCriticalSection(&_tcs);
                 trophy_map_t::iterator it = _trophy_map->find(new_tournament_id);
                 if (it != _trophy_map->end()) {
                     new_tid = it->second;
                     DBG(16) logu_("trophy check:: rewrite trophy-id: 0x%x --> 0x%x\n", tid, new_tid);
-                    tid = new_tid;
-                    break;
+                    LeaveCriticalSection(&_tcs);
+                    return new_tid;
                 }
+                LeaveCriticalSection(&_tcs);
             }
         }
     }
@@ -1686,26 +1692,12 @@ void sider_trophy_table(TROPHY_TABLE_ENTRY *tt)
 {
     //logu_("trophy table addr: %p\n", tt);
     //logu_("tid: %d (0x%x) --> 0x%x\n", tt->tournament_id, tt->trophy_id);
-    if (!_trophy_map) {
-        _trophy_map = new trophy_map_t();
-    }
+    EnterCriticalSection(&_tcs);
     for (int i=0; i<TT_LEN; i++) {
         (*_trophy_map)[tt->tournament_id] = tt->trophy_id;
         tt++;
     }
-
-    // test
-    /*
-    trophy_map_t::iterator it;
-    it = _trophy_map->find(86);
-    if (it != _trophy_map->end()) {
-        logu_("tt entry: %d (0x%x) --> 0x%x\n", 86, 86, it->second);
-    }
-    it = _trophy_map->find(43);
-    if (it != _trophy_map->end()) {
-        logu_("tt entry: %d (0x%x) --> 0x%x\n", 43, 43, it->second);
-    }
-    */
+    LeaveCriticalSection(&_tcs);
 }
 
 char* sider_ball_name(char *ball_name)
@@ -2260,6 +2252,9 @@ DWORD install_func(LPVOID thread_param) {
     _key_cache = new cache_t(&_cs, _config->_key_cache_ttl_sec);
     _rewrite_cache = new cache_t(&_cs, _config->_rewrite_cache_ttl_sec);
 
+    InitializeCriticalSection(&_tcs);
+    _trophy_map = new trophy_map_t();
+
     log_(L"debug = %d\n", _config->_debug);
     //if (_config->_game_speed) {
     //    log_(L"game.speed = %0.3f\n", *(_config->_game_speed));
@@ -2576,6 +2571,7 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
 
                 if (L) { lua_close(L); }
                 DeleteCriticalSection(&_cs);
+                DeleteCriticalSection(&_tcs);
 
                 // tell sider.exe to close
                 if (_config->_close_sider_on_exit) {

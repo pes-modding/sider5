@@ -1,8 +1,10 @@
 #define UNICODE
 
 //#include "stdafx.h"
-#include <stdio.h>
 #include <windows.h>
+#include <stdio.h>
+#include <stdint.h>
+#include <time.h>
 #include <list>
 #include <string>
 #include <unordered_map>
@@ -240,121 +242,6 @@ bool _is_sider(false);
 bool _is_edit_mode(false);
 HANDLE _mh = NULL;
 
-typedef struct {
-    void *value;
-    DWORD expires;
-} cache_map_value_t;
-
-typedef unordered_map<string,cache_map_value_t> cache_map_t;
-
-class cache_t {
-    cache_map_t _map;
-    DWORD _ttl_msec;
-    CRITICAL_SECTION *_kcs;
-public:
-    cache_t(CRITICAL_SECTION *cs, DWORD ttl_sec) :
-        _ttl_msec(ttl_sec * 1000), _kcs(cs) {
-        InitializeCriticalSection(_kcs);
-    }
-    ~cache_t() {
-        log_(L"cache: size:%d\n", _map.size());
-        DeleteCriticalSection(_kcs);
-    }
-    bool lookup(char *filename, void **res) {
-        EnterCriticalSection(_kcs);
-        cache_map_t::iterator i = _map.find(filename);
-        if (i != _map.end()) {
-            DWORD ltime = GetTickCount();
-            //logu_("key_cache::lookup: %s %llu > %llu\n", filename, i->second.expires, ltime);
-            if (i->second.expires > ltime) {
-                // hit
-                *res = i->second.value;
-                //logu_("lookup FOUND: (%08x) %s\n", i->first, filename);
-                LeaveCriticalSection(_kcs);
-                return true;
-            }
-            else {
-                // hit, but expired value, so: miss
-                //logu_("lookup FALSE MATCH: (%08x) %s\n", i->first, filename);
-                _map.erase(i);
-            }
-        }
-        else {
-            // miss
-        }
-        *res = NULL;
-        LeaveCriticalSection(_kcs);
-        return false;
-    }
-    void put(char *filename, void *value) {
-        DWORD ltime = GetTickCount();
-        cache_map_value_t v;
-        v.value = value;
-        v.expires = ltime + _ttl_msec;
-        /*
-        logu_("key_cache::put: key = %s\n", filename);
-        if (v.key) {
-            log_(L"key_cache::put: %s, %llu\n", v.key->c_str(), v.expires);
-        }
-        else {
-            log_(L"key_cache::put: NULL, %llu\n", v.expires);
-        }
-        */
-        EnterCriticalSection(_kcs);
-        pair<cache_map_t::iterator,bool> res = _map.insert(
-            pair<string,cache_map_value_t>(filename, v));
-        if (!res.second) {
-            // replace existing
-            //logu_("REPLACED for: %s\n", filename);
-            res.first->second.value = v.value;
-            res.first->second.expires = v.expires;
-        }
-        LeaveCriticalSection(_kcs);
-    }
-};
-
-cache_t *_key_cache(NULL);
-cache_t *_rewrite_cache(NULL);
-
-// optimization: count for all registered handlers of "livecpk_rewrite" event
-// if it is 0, then no need to call do_rewrite
-int _rewrite_count(0);
-
-struct module_t {
-    lookup_cache_t *cache;
-    lua_State* L;
-    int evt_trophy_check;
-    int evt_lcpk_make_key;
-    int evt_lcpk_get_filepath;
-    int evt_lcpk_rewrite;
-    int evt_set_teams;
-    /*
-    int evt_set_tid;
-    */
-    int evt_set_match_time;
-    /*
-    int evt_set_stadium_choice;
-    */
-    int evt_set_stadium;
-    int evt_set_conditions;
-    int evt_after_set_conditions;
-    /*
-    int evt_set_stadium_for_replay;
-    int evt_set_conditions_for_replay;
-    int evt_after_set_conditions_for_replay;
-    */
-    int evt_get_ball_name;
-    /*
-    int evt_get_stadium_name;
-    int evt_enter_edit_mode;
-    int evt_exit_edit_mode;
-    int evt_enter_replay_gallery;
-    int evt_exit_replay_gallery;
-    */
-};
-list<module_t*> _modules;
-module_t* _curr_m;
-
 wchar_t module_filename[MAX_PATH];
 wchar_t dll_log[MAX_PATH];
 wchar_t dll_ini[MAX_PATH];
@@ -564,6 +451,130 @@ public:
 };
 
 config_t* _config;
+
+typedef struct {
+    void *value;
+    uint64_t expires;
+} cache_map_value_t;
+
+/*
+GetTickCount64 is pretty fast, almost as fast as GetTickCount, but does not
+have a problem of wrap-around every 49 days. So we use it.
+
+GetTickCount64:
+
+00007FF818F261B0 | 8B 0C 25 04 00 FE 7F                 | mov ecx,dword ptr ds:[7FFE0004]  |
+00007FF818F261B7 | B8 20 03 FE 7F                       | mov eax,7FFE0320                 |
+00007FF818F261BC | 48 C1 E1 20                          | shl rcx,20                       |
+00007FF818F261C0 | 48 8B 00                             | mov rax,qword ptr ds:[rax]       |
+00007FF818F261C3 | 48 C1 E0 08                          | shl rax,8                        |
+00007FF818F261C7 | 48 F7 E1                             | mul rcx                          |
+00007FF818F261CA | 48 8B C2                             | mov rax,rdx                      |
+00007FF818F261CD | C3                                   | ret                              |
+*/
+
+typedef unordered_map<string,cache_map_value_t> cache_map_t;
+
+class cache_t {
+    cache_map_t _map;
+    uint64_t _ttl_msec;
+    CRITICAL_SECTION *_kcs;
+    int debug;
+public:
+    cache_t(CRITICAL_SECTION *cs, int ttl_sec) :
+        _ttl_msec(ttl_sec * 1000), _kcs(cs) {
+        InitializeCriticalSection(_kcs);
+    }
+    ~cache_t() {
+        log_(L"cache: size:%d\n", _map.size());
+        DeleteCriticalSection(_kcs);
+    }
+    bool lookup(char *filename, void **res) {
+        EnterCriticalSection(_kcs);
+        cache_map_t::iterator i = _map.find(filename);
+        if (i != _map.end()) {
+            uint64_t ltime = GetTickCount64();
+            //logu_("key_cache::lookup: %s %llu > %llu\n", filename, i->second.expires, ltime);
+            if (i->second.expires > ltime) {
+                // hit
+                *res = i->second.value;
+                //logu_("lookup FOUND: (%08x) %s\n", i->first, filename);
+                LeaveCriticalSection(_kcs);
+                return true;
+            }
+            else {
+                // hit, but expired value, so: miss
+                DBG(32) logu_("lookup EXPIRED MATCH: (%p|%llu <= %llu) %s\n", i->second.value, i->second.expires, ltime, filename);
+                _map.erase(i);
+            }
+        }
+        else {
+            // miss
+        }
+        *res = NULL;
+        LeaveCriticalSection(_kcs);
+        return false;
+    }
+    void put(char *filename, void *value) {
+        uint64_t ltime = GetTickCount64();
+        cache_map_value_t v;
+        v.value = value;
+        v.expires = ltime + _ttl_msec;
+        DBG(32) logu_("cache::put: %s --> (%p|%llu)\n", (filename)?filename:"(NULL)", v.value, v.expires);
+        EnterCriticalSection(_kcs);
+        pair<cache_map_t::iterator,bool> res = _map.insert(
+            pair<string,cache_map_value_t>(filename, v));
+        if (!res.second) {
+            // replace existing
+            //logu_("REPLACED for: %s\n", filename);
+            res.first->second.value = v.value;
+            res.first->second.expires = v.expires;
+        }
+        LeaveCriticalSection(_kcs);
+    }
+};
+
+cache_t *_key_cache(NULL);
+cache_t *_rewrite_cache(NULL);
+
+// optimization: count for all registered handlers of "livecpk_rewrite" event
+// if it is 0, then no need to call do_rewrite
+int _rewrite_count(0);
+
+struct module_t {
+    lookup_cache_t *cache;
+    lua_State* L;
+    int evt_trophy_check;
+    int evt_lcpk_make_key;
+    int evt_lcpk_get_filepath;
+    int evt_lcpk_rewrite;
+    int evt_set_teams;
+    /*
+    int evt_set_tid;
+    */
+    int evt_set_match_time;
+    /*
+    int evt_set_stadium_choice;
+    */
+    int evt_set_stadium;
+    int evt_set_conditions;
+    int evt_after_set_conditions;
+    /*
+    int evt_set_stadium_for_replay;
+    int evt_set_conditions_for_replay;
+    int evt_after_set_conditions_for_replay;
+    */
+    int evt_get_ball_name;
+    /*
+    int evt_get_stadium_name;
+    int evt_enter_edit_mode;
+    int evt_exit_edit_mode;
+    int evt_enter_replay_gallery;
+    int evt_exit_replay_gallery;
+    */
+};
+list<module_t*> _modules;
+module_t* _curr_m;
 
 bool init_paths() {
     wchar_t *p;

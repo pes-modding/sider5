@@ -14,6 +14,7 @@
 #include "common.h"
 #include "patterns.h"
 #include "memlib.h"
+#include "d3d11_1.h"
 
 #include "lua.hpp"
 #include "lauxlib.h"
@@ -173,6 +174,17 @@ lookup_cache_t _lookup_cache;
 
 //typedef LONGLONG (*pfn_alloc_mem_t)(BUFFER_INFO *bi, LONGLONG size);
 //pfn_alloc_mem_t _org_alloc_mem;
+
+typedef HRESULT (*PFN_CreateDXGIFactory1)(REFIID riid, void **ppFactory);
+typedef HRESULT (*PFN_IDXGIFactory1_CreateSwapChain)(IDXGIFactory1 *pFactory, IUnknown *pDevice, DXGI_SWAP_CHAIN_DESC *pDesc, IDXGISwapChain **ppSwapChain);
+typedef HRESULT (*PFN_IDXGISwapChain_Present)(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags);
+PFN_CreateDXGIFactory1 _org_CreateDXGIFactory1;
+PFN_IDXGIFactory1_CreateSwapChain _org_CreateSwapChain;
+PFN_IDXGISwapChain_Present _org_Present;
+
+HRESULT sider_CreateDXGIFactory1(REFIID riid, void **ppFactory);
+HRESULT sider_CreateSwapChain(IDXGIFactory1 *pFactory, IUnknown *pDevice, DXGI_SWAP_CHAIN_DESC *pDesc, IDXGISwapChain **ppSwapChain);
+HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags);
 
 extern "C" BOOL sider_read_file(
     HANDLE       hFile,
@@ -1335,6 +1347,80 @@ void sider_get_size(char *filename, struct FILE_INFO *fi)
     }
 }
 
+HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
+{
+    HRESULT hr = _org_Present(swapChain, SyncInterval, Flags);
+    logu_("hr=0x%x, Present called for swapChain: %p.\n", hr, swapChain);
+    return hr;
+}
+
+HRESULT sider_CreateSwapChain(IDXGIFactory1 *pFactory, IUnknown *pDevice, DXGI_SWAP_CHAIN_DESC *pDesc, IDXGISwapChain **ppSwapChain)
+{
+    HRESULT hr = _org_CreateSwapChain(pFactory, pDevice, pDesc, ppSwapChain);
+    logu_("hr=0x%x, IDXGISwapChain: %p\n", hr, *ppSwapChain);
+
+    // check if we need to hook Present method
+    IDXGISwapChain *sc = (IDXGISwapChain*)(*ppSwapChain);
+    BYTE** vtbl = *(BYTE***)sc;
+    PFN_IDXGISwapChain_Present present = (PFN_IDXGISwapChain_Present)vtbl[8];
+    logu_("current Present = %p\n", present);
+    if ((BYTE*)present == (BYTE*)sider_Present) {
+        logu_("Present already hooked.\n");
+    }
+    else {
+        logu_("Hooking Present\n");
+        _org_Present = present;
+        logu_("_org_Present = %p\n", _org_Present);
+
+        DWORD protection = 0;
+        DWORD newProtection = PAGE_EXECUTE_READWRITE;
+        if (VirtualProtect(vtbl+8, 8, newProtection, &protection)) {
+            vtbl[8] = (BYTE*)sider_Present;
+
+            present = (PFN_IDXGISwapChain_Present)vtbl[8];
+            logu_("now Present = %p\n", present);
+        }
+        else {
+            logu_("ERROR: VirtualProtect failed for: %p\n", vtbl+8);
+        }
+    }
+
+    return hr;
+}
+
+HRESULT sider_CreateDXGIFactory1(REFIID riid, void **ppFactory)
+{
+    HRESULT hr = _org_CreateDXGIFactory1(riid, ppFactory);
+    logu_("hr=0x%x, IDXGIFactory1: %p\n", hr, *ppFactory);
+
+    // check if we need to hook SwapChain method
+    IDXGIFactory1 *f = (IDXGIFactory1*)(*ppFactory);
+    BYTE** vtbl = *(BYTE***)f;
+    PFN_IDXGIFactory1_CreateSwapChain sc = (PFN_IDXGIFactory1_CreateSwapChain)vtbl[10];
+    logu_("current CreateSwapChain = %p\n", sc);
+    if ((BYTE*)sc == (BYTE*)sider_CreateSwapChain) {
+        logu_("CreateSwapChain already hooked.\n");
+    }
+    else {
+        logu_("Hooking CreateSwapChain\n");
+        _org_CreateSwapChain = sc;
+        logu_("_org_CreateSwapChain = %p\n", _org_CreateSwapChain);
+
+        DWORD protection = 0;
+        DWORD newProtection = PAGE_EXECUTE_READWRITE;
+        if (VirtualProtect(vtbl+10, 8, newProtection, &protection)) {
+            vtbl[10] = (BYTE*)sider_CreateSwapChain;
+
+            sc = (PFN_IDXGIFactory1_CreateSwapChain)vtbl[10];
+            logu_("now CreateSwapChain = %p\n", sc);
+        }
+        else {
+            logu_("ERROR: VirtualProtect failed for: %p\n", vtbl+10);
+        }
+    }
+    return hr;
+}
+
 BOOL sider_read_file(
     HANDLE       hFile,
     LPVOID       lpBuffer,
@@ -2463,6 +2549,11 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
             hook_call(_config->_hp_at_extend_cpk, (BYTE*)sider_extend_cpk_hk, 1);
             hook_call(_config->_hp_at_mem_copy, (BYTE*)sider_mem_copy_hk, 0);
             hook_call_rcx(_config->_hp_at_lookup_file, (BYTE*)sider_lookup_file_hk, 3);
+
+            BYTE *loc = get_target_location((BYTE*)0x141fc902a);
+            _org_CreateDXGIFactory1 = *(PFN_CreateDXGIFactory1*)loc;
+            logu_("_org_CreateDXGIFactory1: %p\n", _org_CreateDXGIFactory1);
+            hook_indirect_call((BYTE*)0x141fc902a, (BYTE*)sider_CreateDXGIFactory1);
         }
 
         if (_config->_lua_enabled) {

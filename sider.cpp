@@ -14,11 +14,17 @@
 #include "common.h"
 #include "patterns.h"
 #include "memlib.h"
-#include "d3d11_1.h"
+
+#include "d3d11.h"
+#include "d3dcompiler.h"
 
 #include "lua.hpp"
 #include "lauxlib.h"
 #include "lualib.h"
+
+#pragma comment(lib, "d3d11.lib")
+#pragma comment(lib, "dxgi.lib")
+#pragma comment(lib, "d3dcompiler.lib")
 
 #ifndef LUA_OK
 #define LUA_OK 0
@@ -185,6 +191,45 @@ PFN_IDXGISwapChain_Present _org_Present;
 HRESULT sider_CreateDXGIFactory1(REFIID riid, void **ppFactory);
 HRESULT sider_CreateSwapChain(IDXGIFactory1 *pFactory, IUnknown *pDevice, DXGI_SWAP_CHAIN_DESC *pDesc, IDXGISwapChain **ppSwapChain);
 HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags);
+
+ID3D11Device *_device(NULL);
+ID3D11DeviceContext *_device_context(NULL);
+IDXGISwapChain *_swap_chain(NULL);
+
+struct dx11_t {
+    ID3D11Device *Device;
+    ID3D11DeviceContext *Context;
+    IDXGISwapChain *SwapChain;
+    HWND Window;
+};
+dx11_t DX11;
+
+struct SimpleVertex {
+    float x;
+    float y;
+    float z;
+};
+
+ID3D11InputLayout*          g_pInputLayout = NULL;
+ID3D11Buffer*               g_pVertexBuffer = NULL;
+ID3D11RenderTargetView*     g_pRenderTargetView = NULL;
+ID3D11VertexShader*         g_pVertexShader = NULL;
+ID3D11PixelShader*          g_pPixelShader = NULL;
+HRESULT hr = S_OK;
+char* g_strVS =
+    "void VS( in float4 posIn : POSITION,\n"
+    "         out float4 posOut : SV_Position )\n"
+    "{\n"
+    "    // Output the vertex position, unchanged\n"
+    "    posOut = posIn;\n"
+    "}\n";
+
+char* g_strPS =
+    "void PS( out float4 colorOut : SV_Target )\n"
+    "{\n"
+    "    // Make each pixel yellow, with alpha = 1\n"
+    "    colorOut = float4( 1.0f, 1.0f, 1.0f, 1.0f );\n"
+    "}\n";
 
 extern "C" BOOL sider_read_file(
     HANDLE       hFile,
@@ -1347,10 +1392,157 @@ void sider_get_size(char *filename, struct FILE_INFO *fi)
     }
 }
 
+void draw_simple_test()
+{
+    // Create the render target view
+    ID3D11Texture2D* pRenderTargetTexture;
+    hr = DX11.SwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pRenderTargetTexture);
+    if (FAILED(hr)) {
+        logu_("DX11.SwapChain->GetBuffer failed\n");
+        return;
+    }
+
+    hr = DX11.Device->CreateRenderTargetView(pRenderTargetTexture, NULL, &g_pRenderTargetView);
+    if (FAILED(hr)) {
+        logu_("DX11.Device->CreateRenderTargetView failed\n");
+        return;
+    }
+    pRenderTargetTexture->Release();
+
+
+    float ClearColor[4] = { 1.0f, 0.125f, 0.3f, 1.0f }; // red, green, blue, alpha
+    //DX11.BackBufferRT
+    //DX11.Context->ClearRenderTargetView(g_pRenderTargetView, ClearColor); // clear whole view to color
+
+    DWORD dwShaderFlags = D3D10_SHADER_ENABLE_STRICTNESS;
+    ID3D10Blob* pBlobVS = NULL;
+    ID3D10Blob* pBlobError = NULL;
+    hr = D3DCompile(g_strVS, lstrlenA(g_strVS) + 1, "VS", NULL, NULL, "VS",
+        "vs_4_0", dwShaderFlags, 0, &pBlobVS, &pBlobError);
+    if (FAILED(hr))
+    {
+        if (pBlobError != NULL)
+        {
+            logu_((char*)pBlobError->GetBufferPointer());
+            pBlobError->Release();
+        }
+        logu_("D3DCompile failed\n");
+        return;
+    }
+    hr = DX11.Device->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(),
+        NULL, &g_pVertexShader);
+    if (FAILED(hr)) {
+        logu_("DX11.Device->CreateVertexShader failed\n");
+        return;
+    }
+
+    // Compile and create the pixel shader
+    ID3D10Blob* pBlobPS = NULL;
+    hr = D3DCompile(g_strPS, lstrlenA(g_strPS) + 1, "PS", NULL, NULL, "PS",
+        "ps_4_0", dwShaderFlags, 0, &pBlobPS, &pBlobError);
+    if (FAILED(hr))
+    {
+        if (pBlobError != NULL)
+        {
+            logu_((char*)pBlobError->GetBufferPointer());
+            pBlobError->Release();
+        }
+        logu_("D3DCompile failed\n");
+        return;
+    }
+    hr = DX11.Device->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(),
+        NULL, &g_pPixelShader);
+    if (FAILED(hr)) {
+        logu_("DX11.Device->CreatePixelShader failed\n");
+        return;
+    }
+    pBlobPS->Release();
+
+
+    // Create the input layout
+    D3D11_INPUT_ELEMENT_DESC elements[] =
+    {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    };
+    UINT numElements = _countof(elements);
+
+    hr = DX11.Device->CreateInputLayout(elements, numElements, pBlobVS->GetBufferPointer(),
+        pBlobVS->GetBufferSize(), &g_pInputLayout);
+    if (FAILED(hr)) {
+        logu_("DX11.Device->CreateInputLayout failed\n");
+        return;
+    }
+
+    pBlobVS->Release();
+
+    SimpleVertex vertices[] =
+    {
+        0.0f, 0.02f, 0.02f, // top
+        0.05f, -0.05f, 0.05f, // left
+        -0.05f, -0.05f, 0.05f, // right
+    };
+    D3D11_BUFFER_DESC bd;
+    bd.Usage = D3D11_USAGE_DEFAULT;
+    bd.ByteWidth = sizeof(vertices);
+    bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    bd.CPUAccessFlags = 0;
+    bd.MiscFlags = 0;
+    bd.StructureByteStride = 0;
+    D3D11_SUBRESOURCE_DATA initData;
+    initData.pSysMem = vertices;
+    hr = DX11.Device->CreateBuffer(&bd, &initData, &g_pVertexBuffer);
+    if (FAILED(hr)) {
+        logu_("DX11.Device->CreateBuffer failed\n");
+        return;
+    }
+    logu_("prep done successfully!\n");
+
+    // ---
+    // zuweisen
+    DX11.Context->IASetInputLayout(g_pInputLayout);
+
+    UINT stride = sizeof(SimpleVertex);
+    UINT offset = 0;
+    DX11.Context->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
+
+    DX11.Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    DX11.Context->VSSetShader(g_pVertexShader, NULL, 0);
+
+    DX11.Context->PSSetShader(g_pPixelShader, NULL, 0);
+
+    RECT rc;
+    GetClientRect(DX11.Window, &rc);
+    D3D11_VIEWPORT vp;
+    vp.Width = (FLOAT)(rc.right - rc.left);
+    vp.Height = (FLOAT)(rc.bottom - rc.top);
+    vp.MinDepth = 0.0f;
+    vp.MaxDepth = 1.0f;
+    vp.TopLeftX = 0;
+    vp.TopLeftY = 0;
+    DX11.Context->RSSetViewports(1, &vp);
+
+    DX11.Context->OMSetRenderTargets(1, &g_pRenderTargetView, NULL);
+
+    DX11.Context->Draw(3, 0); //3 vertices start at 0
+    logu_("finished drawing\n");
+
+    //cleanup
+    g_pRenderTargetView->Release();
+}
+
 HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
 {
+    logu_("Present called for swapChain: %p\n", swapChain);
+
+    // render a quad
+    //DX11.Device->GetImmediateContext(&DX11.Context);
+    //logu_("Got context: %p\n", DX11.Context);
+    draw_simple_test();
+    //DX11.Context->Release();
+
     HRESULT hr = _org_Present(swapChain, SyncInterval, Flags);
-    logu_("hr=0x%x, Present called for swapChain: %p.\n", hr, swapChain);
+    logu_("_org_Present returned: 0x%x\n", hr);
     return hr;
 }
 
@@ -1358,14 +1550,39 @@ HRESULT sider_CreateSwapChain(IDXGIFactory1 *pFactory, IUnknown *pDevice, DXGI_S
 {
     HRESULT hr = _org_CreateSwapChain(pFactory, pDevice, pDesc, ppSwapChain);
     logu_("hr=0x%x, IDXGISwapChain: %p\n", hr, *ppSwapChain);
+    _swap_chain = *ppSwapChain;
+
+    _device = (ID3D11Device*)pDevice;
+    logu_("==> device: %p\n", _device);
+    if (SUCCEEDED(_swap_chain->GetDevice(__uuidof(ID3D11Device), (void**)&_device))) {
+        logu_("==> device: %p\n", _device);
+    }
+
+    _device_context = NULL;
+    _device->GetImmediateContext(&_device_context);
+    logu_("==> device context: %p\n", _device_context);
+    logu_("==> swap chain: %p\n", _swap_chain);
+    if (_device_context) {
+        _device_context->Release();
+    }
+
+    DX11.Device = _device;
+    DX11.SwapChain = _swap_chain;
+    DX11.Device->GetImmediateContext(&DX11.Context);
+
+    DXGI_SWAP_CHAIN_DESC desc;
+    if (SUCCEEDED(DX11.SwapChain->GetDesc(&desc))) {
+        DX11.Window = desc.OutputWindow;
+        logu_("==> window handle: %p\n", DX11.Window);
+    }
 
     // check if we need to hook Present method
     IDXGISwapChain *sc = (IDXGISwapChain*)(*ppSwapChain);
     BYTE** vtbl = *(BYTE***)sc;
     PFN_IDXGISwapChain_Present present = (PFN_IDXGISwapChain_Present)vtbl[8];
-    logu_("current Present = %p\n", present);
+    DBG(64) logu_("current Present = %p\n", present);
     if ((BYTE*)present == (BYTE*)sider_Present) {
-        logu_("Present already hooked.\n");
+        DBG(64) logu_("Present already hooked.\n");
     }
     else {
         logu_("Hooking Present\n");
@@ -1391,15 +1608,15 @@ HRESULT sider_CreateSwapChain(IDXGIFactory1 *pFactory, IUnknown *pDevice, DXGI_S
 HRESULT sider_CreateDXGIFactory1(REFIID riid, void **ppFactory)
 {
     HRESULT hr = _org_CreateDXGIFactory1(riid, ppFactory);
-    logu_("hr=0x%x, IDXGIFactory1: %p\n", hr, *ppFactory);
+    DBG(64) logu_("hr=0x%x, IDXGIFactory1: %p\n", hr, *ppFactory);
 
     // check if we need to hook SwapChain method
     IDXGIFactory1 *f = (IDXGIFactory1*)(*ppFactory);
     BYTE** vtbl = *(BYTE***)f;
     PFN_IDXGIFactory1_CreateSwapChain sc = (PFN_IDXGIFactory1_CreateSwapChain)vtbl[10];
-    logu_("current CreateSwapChain = %p\n", sc);
+    DBG(64) logu_("current CreateSwapChain = %p\n", sc);
     if ((BYTE*)sc == (BYTE*)sider_CreateSwapChain) {
-        logu_("CreateSwapChain already hooked.\n");
+        DBG(64) logu_("CreateSwapChain already hooked.\n");
     }
     else {
         logu_("Hooking CreateSwapChain\n");

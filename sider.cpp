@@ -181,6 +181,8 @@ lookup_cache_t _lookup_cache;
 //typedef LONGLONG (*pfn_alloc_mem_t)(BUFFER_INFO *bi, LONGLONG size);
 //pfn_alloc_mem_t _org_alloc_mem;
 
+LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam);
+
 typedef HRESULT (*PFN_CreateDXGIFactory1)(REFIID riid, void **ppFactory);
 typedef HRESULT (*PFN_IDXGIFactory1_CreateSwapChain)(IDXGIFactory1 *pFactory, IUnknown *pDevice, DXGI_SWAP_CHAIN_DESC *pDesc, IDXGISwapChain **ppSwapChain);
 typedef HRESULT (*PFN_IDXGISwapChain_Present)(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags);
@@ -210,6 +212,7 @@ struct SimpleVertex {
     float z;
 };
 
+ID3D11BlendState* g_pBlendState = NULL;
 ID3D11InputLayout*          g_pInputLayout = NULL;
 ID3D11Buffer*               g_pVertexBuffer = NULL;
 ID3D11RenderTargetView*     g_pRenderTargetView = NULL;
@@ -228,7 +231,7 @@ char* g_strPS =
     "void PS( out float4 colorOut : SV_Target )\n"
     "{\n"
     "    // Make each pixel yellow, with alpha = 1\n"
-    "    colorOut = float4( 1.0f, 1.0f, 1.0f, 1.0f );\n"
+    "    colorOut = float4( 0.5f, 1.0f, 0.5f, 0.5f );\n"
     "}\n";
 
 extern "C" BOOL sider_read_file(
@@ -293,7 +296,9 @@ static DWORD dwThreadId;
 static DWORD hookingThreadId = 0;
 static HMODULE myHDLL;
 static HHOOK handle;
+static HHOOK kb_handle;
 
+bool _overlay_on(false);
 bool _is_game(false);
 bool _is_sider(false);
 bool _is_edit_mode(false);
@@ -331,6 +336,7 @@ public:
     bool _close_sider_on_exit;
     bool _start_minimized;
     bool _free_side_select;
+    bool _overlay_enabled;
     int _num_minutes;
     BYTE *_hp_at_read_file;
     BYTE *_hp_at_get_size;
@@ -349,6 +355,8 @@ public:
     BYTE *_hp_at_set_minutes;
     BYTE *_hp_at_sider;
 
+    BYTE *_hp_at_dxgi;
+
     bool _hook_set_team_id;
     bool _hook_set_settings;
     bool _hook_context_reset;
@@ -366,6 +374,7 @@ public:
                  _close_sider_on_exit(false),
                  _start_minimized(false),
                  _free_side_select(false),
+                 _overlay_enabled(false),
                  _key_cache_ttl_sec(10),
                  _rewrite_cache_ttl_sec(10),
                  _hp_at_read_file(NULL),
@@ -383,6 +392,7 @@ public:
                  _hp_at_sider(NULL),
                  _hp_at_trophy_table(NULL),
                  _hp_at_ball_name(NULL),
+                 _hp_at_dxgi(NULL),
                  _hook_set_team_id(true),
                  _hook_set_settings(true),
                  _hook_context_reset(true),
@@ -455,6 +465,10 @@ public:
 
         _free_side_select = GetPrivateProfileInt(_section_name.c_str(),
             L"free.side.select", _free_side_select,
+            config_ini);
+
+        _overlay_enabled = GetPrivateProfileInt(_section_name.c_str(),
+            L"overlay.enabled", _overlay_enabled,
             config_ini);
 
         _livecpk_enabled = GetPrivateProfileInt(_section_name.c_str(),
@@ -1392,28 +1406,8 @@ void sider_get_size(char *filename, struct FILE_INFO *fi)
     }
 }
 
-void draw_simple_test()
+void prep_stuff()
 {
-    // Create the render target view
-    ID3D11Texture2D* pRenderTargetTexture;
-    hr = DX11.SwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pRenderTargetTexture);
-    if (FAILED(hr)) {
-        logu_("DX11.SwapChain->GetBuffer failed\n");
-        return;
-    }
-
-    hr = DX11.Device->CreateRenderTargetView(pRenderTargetTexture, NULL, &g_pRenderTargetView);
-    if (FAILED(hr)) {
-        logu_("DX11.Device->CreateRenderTargetView failed\n");
-        return;
-    }
-    pRenderTargetTexture->Release();
-
-
-    float ClearColor[4] = { 1.0f, 0.125f, 0.3f, 1.0f }; // red, green, blue, alpha
-    //DX11.BackBufferRT
-    //DX11.Context->ClearRenderTargetView(g_pRenderTargetView, ClearColor); // clear whole view to color
-
     DWORD dwShaderFlags = D3D10_SHADER_ENABLE_STRICTNESS;
     ID3D10Blob* pBlobVS = NULL;
     ID3D10Blob* pBlobError = NULL;
@@ -1477,9 +1471,9 @@ void draw_simple_test()
 
     SimpleVertex vertices[] =
     {
-        0.0f, 0.02f, 0.02f, // top
-        0.05f, -0.05f, 0.05f, // left
-        -0.05f, -0.05f, 0.05f, // right
+        0.0f, 0.5f, 0.5f, // top
+        0.5f, -0.5f, 0.5f, // left
+        -0.5f, -0.5f, 0.5f, // right
     };
     D3D11_BUFFER_DESC bd;
     bd.Usage = D3D11_USAGE_DEFAULT;
@@ -1495,10 +1489,42 @@ void draw_simple_test()
         logu_("DX11.Device->CreateBuffer failed\n");
         return;
     }
-    logu_("prep done successfully!\n");
 
-    // ---
-    // zuweisen
+    D3D11_BLEND_DESC BlendState;
+    ZeroMemory(&BlendState, sizeof(D3D11_BLEND_DESC));
+
+    BlendState.RenderTarget[0].BlendEnable = TRUE;
+    BlendState.RenderTarget[0].SrcBlend = D3D11_BLEND_SRC_ALPHA;
+    BlendState.RenderTarget[0].DestBlend = D3D11_BLEND_INV_SRC_ALPHA;
+    BlendState.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    BlendState.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+    BlendState.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+    BlendState.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    BlendState.RenderTarget[0].RenderTargetWriteMask = 0x0f;
+    DX11.Device->CreateBlendState(&BlendState, &g_pBlendState);
+
+    logu_("prep done successfully!\n");
+}
+
+void draw_simple_test()
+{
+    // Create the render target view
+    ID3D11Texture2D* pRenderTargetTexture;
+    hr = DX11.SwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (LPVOID*)&pRenderTargetTexture);
+    if (FAILED(hr)) {
+        logu_("DX11.SwapChain->GetBuffer failed\n");
+        return;
+    }
+
+    hr = DX11.Device->CreateRenderTargetView(pRenderTargetTexture, NULL, &g_pRenderTargetView);
+    if (FAILED(hr)) {
+        logu_("DX11.Device->CreateRenderTargetView failed\n");
+        pRenderTargetTexture->Release();
+        return;
+    }
+    pRenderTargetTexture->Release();
+
+    // draw
     DX11.Context->IASetInputLayout(g_pInputLayout);
 
     UINT stride = sizeof(SimpleVertex);
@@ -1524,8 +1550,9 @@ void draw_simple_test()
 
     DX11.Context->OMSetRenderTargets(1, &g_pRenderTargetView, NULL);
 
+    DX11.Context->OMSetBlendState(g_pBlendState, NULL, 0xffffffff);
+
     DX11.Context->Draw(3, 0); //3 vertices start at 0
-    logu_("finished drawing\n");
 
     //cleanup
     g_pRenderTargetView->Release();
@@ -1533,16 +1560,16 @@ void draw_simple_test()
 
 HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
 {
-    logu_("Present called for swapChain: %p\n", swapChain);
+    //logu_("Present called for swapChain: %p\n", swapChain);
 
-    // render a quad
-    //DX11.Device->GetImmediateContext(&DX11.Context);
-    //logu_("Got context: %p\n", DX11.Context);
-    draw_simple_test();
-    //DX11.Context->Release();
+    if (_overlay_on) {
+        // render a triangle
+        DX11.Device->GetImmediateContext(&DX11.Context);
+        draw_simple_test();
+        DX11.Context->Release();
+    }
 
     HRESULT hr = _org_Present(swapChain, SyncInterval, Flags);
-    logu_("_org_Present returned: 0x%x\n", hr);
     return hr;
 }
 
@@ -1575,6 +1602,8 @@ HRESULT sider_CreateSwapChain(IDXGIFactory1 *pFactory, IUnknown *pDevice, DXGI_S
         DX11.Window = desc.OutputWindow;
         logu_("==> window handle: %p\n", DX11.Window);
     }
+
+    prep_stuff();
 
     // check if we need to hook Present method
     IDXGISwapChain *sc = (IDXGISwapChain*)(*ppSwapChain);
@@ -2582,6 +2611,7 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"rewrite-cache.ttl-sec = %d\n", _config->_rewrite_cache_ttl_sec);
     log_(L"start.minimized = %d\n", _config->_start_minimized);
     log_(L"free.side.select = %d\n", _config->_free_side_select);
+    log_(L"overlay.enabled = %d\n", _config->_overlay_enabled);
     log_(L"close.on.exit = %d\n", _config->_close_sider_on_exit);
     log_(L"match.minutes = %d\n", _config->_num_minutes);
 
@@ -2592,6 +2622,10 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"hook.trophy-table = %d\n", _config->_hook_trophy_table);
     log_(L"hook.trophy-check = %d\n", _config->_hook_trophy_check);
     log_(L"--------------------------\n");
+
+    if (_config->_overlay_enabled) {
+        kb_handle = SetWindowsHookEx(WH_KEYBOARD, sider_keyboard_proc, myHDLL, 0);
+    }
 
     for (list<wstring>::iterator it = _config->_cpk_roots.begin();
             it != _config->_cpk_roots.end();
@@ -2651,6 +2685,11 @@ bool all_found(config_t *cfg) {
             cfg->_hp_at_set_minutes > 0
         );
     }
+    if (cfg->_overlay_enabled) {
+        all = all && (
+            cfg->_hp_at_dxgi > 0
+        );
+    }
     if (cfg->_free_side_select) {
         all = all && (
             cfg->_hp_at_sider > 0
@@ -2666,7 +2705,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
         base, base + h->Misc.VirtualSize, h->Misc.VirtualSize);
     bool result(false);
 
-#define NUM_PATTERNS 15
+#define NUM_PATTERNS 16
     BYTE *frag[NUM_PATTERNS];
     frag[0] = lcpk_pattern_at_read_file;
     frag[1] = lcpk_pattern_at_get_size;
@@ -2683,6 +2722,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag[12] = pattern_sider;
     frag[13] = pattern_trophy_table;
     frag[14] = pattern_ball_name;
+    frag[15] = pattern_dxgi;
     size_t frag_len[NUM_PATTERNS];
     frag_len[0] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_read_file)-1 : 0;
     frag_len[1] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_get_size)-1 : 0;
@@ -2699,6 +2739,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag_len[12] = _config->_free_side_select ? sizeof(pattern_sider)-1 : 0;
     frag_len[13] = _config->_lua_enabled ? sizeof(pattern_trophy_table)-1 : 0;
     frag_len[14] = _config->_lua_enabled ? sizeof(pattern_ball_name)-1 : 0;
+    frag_len[15] = _config->_overlay_enabled ? sizeof(pattern_dxgi)-1 : 0;
     int offs[NUM_PATTERNS];
     offs[0] = lcpk_offs_at_read_file;
     offs[1] = lcpk_offs_at_get_size;
@@ -2715,6 +2756,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     offs[12] = offs_sider;
     offs[13] = offs_trophy_table;
     offs[14] = offs_ball_name;
+    offs[15] = offs_dxgi;
     BYTE **addrs[NUM_PATTERNS];
     addrs[0] = &_config->_hp_at_read_file;
     addrs[1] = &_config->_hp_at_get_size;
@@ -2731,6 +2773,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     addrs[12] = &_config->_hp_at_sider;
     addrs[13] = &_config->_hp_at_trophy_table;
     addrs[14] = &_config->_hp_at_ball_name;
+    addrs[15] = &_config->_hp_at_dxgi;
 
     for (int j=0; j<NUM_PATTERNS; j++) {
         if (frag_len[j]==0) {
@@ -2766,11 +2809,16 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
             hook_call(_config->_hp_at_extend_cpk, (BYTE*)sider_extend_cpk_hk, 1);
             hook_call(_config->_hp_at_mem_copy, (BYTE*)sider_mem_copy_hk, 0);
             hook_call_rcx(_config->_hp_at_lookup_file, (BYTE*)sider_lookup_file_hk, 3);
+        }
 
-            BYTE *loc = get_target_location((BYTE*)0x141fc902a);
-            _org_CreateDXGIFactory1 = *(PFN_CreateDXGIFactory1*)loc;
-            logu_("_org_CreateDXGIFactory1: %p\n", _org_CreateDXGIFactory1);
-            hook_indirect_call((BYTE*)0x141fc902a, (BYTE*)sider_CreateDXGIFactory1);
+        if (_config->_overlay_enabled) {
+            if (_config->_hp_at_dxgi) {
+                BYTE *addr = get_target_addr(_config->_hp_at_dxgi);
+                BYTE *loc = get_target_location(addr);
+                _org_CreateDXGIFactory1 = *(PFN_CreateDXGIFactory1*)loc;
+                logu_("_org_CreateDXGIFactory1: %p\n", _org_CreateDXGIFactory1);
+                hook_indirect_call(addr, (BYTE*)sider_CreateDXGIFactory1);
+            }
         }
 
         if (_config->_lua_enabled) {
@@ -2918,6 +2966,18 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
     return TRUE;
 }
 
+LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam)
+{
+    logu_("sider_keyboard_proc: wParam=%p, lParam=%p\n", wParam, lParam);
+    if (code == HC_ACTION) {
+        if (wParam == 0x20 && ((lParam & 0x80000000) == 0)) {
+            // pressed [Space]
+            _overlay_on = !_overlay_on;
+        }
+    }
+    return CallNextHookEx(handle, code, wParam, lParam);
+}
+
 LRESULT CALLBACK meconnect(int code, WPARAM wParam, LPARAM lParam)
 {
     if (hookingThreadId == GetCurrentThreadId()) {
@@ -2936,4 +2996,5 @@ void setHook()
 void unsetHook()
 {
     UnhookWindowsHookEx(handle);
+    UnhookWindowsHookEx(kb_handle);
 }

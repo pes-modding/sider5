@@ -217,4 +217,17 @@ static int offs_ball_name = 28;
 static BYTE pattern_ball_name_head[3] = "\x50\x50";
 static BYTE pattern_ball_name_tail[4] = "\x58\x58\x90";
 
+/*
+00000001415BD4A0 | 48 33 C4                             | xor rax,rsp                            |
+00000001415BD4A3 | 48 89 84 24 E0 01 00 00              | mov qword ptr ss:[rsp+1E0],rax         |
+00000001415BD4AB | 48 8B F9                             | mov rdi,rcx                            |
+00000001415BD4AE | 48 8D 54 24 30                       | lea rdx,qword ptr ss:[rsp+30]          |
+*/
+static BYTE pattern_dxgi[20] =
+    "\x48\x33\xc4"
+    "\x48\x89\x84\x24\xe0\x01\x00\x00"
+    "\x48\x8b\xf9"
+    "\x48\x8d\x54\x24\x30";
+static int offs_dxgi = 0x1a;
+
 #endif

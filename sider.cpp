@@ -295,8 +295,8 @@ extern "C" void sider_ball_name_hk();
 static DWORD dwThreadId;
 static DWORD hookingThreadId = 0;
 static HMODULE myHDLL;
-static HHOOK handle;
-static HHOOK kb_handle;
+static HHOOK handle = 0;
+static HHOOK kb_handle = 0;
 
 bool _overlay_on(false);
 bool _is_game(false);
@@ -2968,11 +2968,16 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
 
 LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam)
 {
-    logu_("sider_keyboard_proc: wParam=%p, lParam=%p\n", wParam, lParam);
     if (code == HC_ACTION) {
         if (wParam == 0x20 && ((lParam & 0x80000000) == 0)) {
             // pressed [Space]
             _overlay_on = !_overlay_on;
+            logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
+        }
+
+        if (_overlay_on) {
+            logu_("sider_keyboard_proc: wParam=%p, lParam=%p\n", wParam, lParam);
+            // todo: deliver keyboard events to modules
         }
     }
     return CallNextHookEx(handle, code, wParam, lParam);
@@ -2996,5 +3001,7 @@ void setHook()
 void unsetHook()
 {
     UnhookWindowsHookEx(handle);
-    UnhookWindowsHookEx(kb_handle);
+    if (kb_handle) {
+        UnhookWindowsHookEx(kb_handle);
+    }
 }

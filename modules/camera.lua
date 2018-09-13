@@ -1,9 +1,9 @@
 --[[
 =========================
 
-camera module v1.2
+camera module v1.3
 Game research by: nesa24
-Requires: sider.dll 5.0.2
+Requires: sider.dll 5.1.0
 
 =========================
 --]]
@@ -11,6 +11,19 @@ Requires: sider.dll 5.0.2
 local m = {}
 local hex = memory.hex
 local base_addr
+local settings
+
+local PREV_PROP_KEY = 0x39
+local NEXT_PROP_KEY = 0x30
+local PREV_VALUE_KEY = 0xbd
+local NEXT_VALUE_KEY = 0xbb
+
+local overlay_curr = 1
+local overlay_states = {
+    { prv = "", curr_name = "zoom range", curr_prop = "camera_range_zoom", nxt = " >", decr = -0.1, incr = 0.1 },
+    { prv = "< ", curr_name = "height range ", curr_prop = "camera_range_height", nxt = " >", decr = -0.05, incr = 0.05 },
+    { prv = "< ", curr_name = "angle range ", curr_prop = "camera_range_angle", nxt = "", decr = -1, incr = 1 },
+}
 
 local game_info = {
     camera_range_zoom   = { 0x04, "f", 4},   --> default: 19.05
@@ -30,10 +43,10 @@ local function load_ini(ctx, filename)
     return t
 end
 
-local function apply_settings(ctx)
-    local settings = load_ini(ctx, "camera.ini")
-
-    -- apply settings
+local function apply_settings(log_it)
+    if not base_addr then
+        return
+    end
     for name,value in pairs(settings) do
         local entry = game_info[name]
         if entry then
@@ -42,15 +55,41 @@ local function apply_settings(ctx)
             local old_value = memory.unpack(format, memory.read(addr, len))
             memory.write(addr, memory.pack(format, value))
             local new_value = memory.unpack(format, memory.read(addr, len))
-            log(string.format("%s: changed at %s: %s --> %s",
-                name, hex(addr), old_value, new_value))
+            if log_it then
+                log(string.format("%s: changed at %s: %s --> %s",
+                    name, hex(addr), old_value, new_value))
+            end
         end
     end
 end
 
 function m.set_teams(ctx, home, away)
-    if base_addr then
-        apply_settings(ctx)
+    apply_settings(true)
+end
+
+function m.overlay_on(ctx)
+    local s = overlay_states[overlay_curr]
+    local curr_value = settings[s.curr_prop]
+    return string.format("%s%s:%0.2f%s", s.prv, s.curr_name, curr_value, s.nxt)
+end
+
+function m.key_down(ctx, vkey)
+    if vkey == NEXT_PROP_KEY then
+        if overlay_curr < #overlay_states then
+            overlay_curr = overlay_curr + 1
+        end
+    elseif vkey == PREV_PROP_KEY then
+        if overlay_curr > 1 then
+            overlay_curr = overlay_curr - 1
+        end
+    elseif vkey == NEXT_VALUE_KEY then
+        s = overlay_states[overlay_curr]
+        settings[s.curr_prop] = settings[s.curr_prop] + s.incr;
+        apply_settings()
+    elseif vkey == PREV_VALUE_KEY then
+        s = overlay_states[overlay_curr]
+        settings[s.curr_prop] = settings[s.curr_prop] + s.decr;
+        apply_settings()
     end
 end
 
@@ -67,8 +106,12 @@ function m.init(ctx)
     base_addr = loc + rel_offset + 7
     log(string.format("Camera block base address: %s", hex(base_addr)))
 
+    settings = load_ini(ctx, "camera.ini")
+
     -- register for events
     ctx.register("set_teams", m.set_teams)
+    ctx.register("overlay_on", m.overlay_on)
+    ctx.register("key_down", m.key_down)
 end
 
 return m

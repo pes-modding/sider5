@@ -26,6 +26,10 @@ LUALIB=lua51.lib
 LUADLL=lua51.dll
 LUAJIT=luajit.exe
 
+FW1INC=/I soft\FW1FontWrapper\Source
+FW1LIB=FW1FontWrapper.lib
+FW1LIBPATH=soft\FW1FontWrapper\Release\x64
+
 all: sider.exe sider.dll
 
 sider.res: sider.rc
@@ -50,8 +54,8 @@ util.obj: util.asm
     ml64 /c util.asm
 
 sider.obj: sider.cpp sider.h patterns.h common.h imageutil.h
-sider.dll: sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj sider.res $(LUALIBPATH)\$(LUALIB)
-	$(LINK) $(LFLAGS) /out:sider.dll /DLL sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj sider.res /LIBPATH:$(LUALIBPATH) $(LIBS) $(LUALIB) /LIBPATH:"$(LIB)"
+sider.dll: sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj sider.res $(LUALIBPATH)\$(LUALIB) $(FW1LIBPATH)\$(FW1LIB)
+	$(LINK) $(LFLAGS) /out:sider.dll /DLL sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj sider.res /LIBPATH:$(LUALIBPATH) /LIBPATH:$(FW1LIBPATH) $(LIBS) $(LUALIB) $(FW1LIB) /LIBPATH:"$(LIB)"
 
 sider.exe: main.obj sider.dll sider_main.res $(LUADLL)
 	$(LINK) $(LFLAGS) /out:sider.exe main.obj sider_main.res $(LIBS) sider.lib /LIBPATH:"$(LIB)"
@@ -61,7 +65,7 @@ $(LUADLL): $(LUALIBPATH)\$(LUALIB)
 	copy $(LUALIBPATH)\$(LUAJIT) .
 
 .cpp.obj:
-	$(CC) $(CFLAGS) -c $(INC) $(LUAINC) $<
+	$(CC) $(CFLAGS) -c $(INC) $(LUAINC) $(FW1INC) $<
 
 clean:
 	del *.obj *.dll *.exp *.res *.lib *.exe *~ memlib_lua.h

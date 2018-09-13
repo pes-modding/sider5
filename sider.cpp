@@ -17,6 +17,7 @@
 
 #include "d3d11.h"
 #include "d3dcompiler.h"
+#include "FW1FontWrapper.h"
 
 #include "lua.hpp"
 #include "lauxlib.h"
@@ -203,8 +204,14 @@ struct dx11_t {
     ID3D11DeviceContext *Context;
     IDXGISwapChain *SwapChain;
     HWND Window;
+    UINT Width;
+    UINT Height;
 };
 dx11_t DX11;
+
+IFW1Factory *g_pFW1Factory;
+IFW1FontWrapper *g_pFontWrapper;
+float _font_size = 20.0f;
 
 struct SimpleVertex {
     float x;
@@ -231,7 +238,7 @@ char* g_strPS =
     "void PS( out float4 colorOut : SV_Target )\n"
     "{\n"
     "    // Make each pixel yellow, with alpha = 1\n"
-    "    colorOut = float4( 0.5f, 1.0f, 0.5f, 0.5f );\n"
+    "    colorOut = float4( 0.0f, 0.1f, 0.0f, 0.5f );\n"
     "}\n";
 
 extern "C" BOOL sider_read_file(
@@ -303,6 +310,11 @@ bool _is_game(false);
 bool _is_sider(false);
 bool _is_edit_mode(false);
 HANDLE _mh = NULL;
+
+wstring _overlay_header;
+wchar_t _overlay_text[1024];
+wchar_t _current_overlay_text[1024] = L"hello world!";
+char _overlay_utf8_text[1024];
 
 wchar_t module_filename[MAX_PATH];
 wchar_t dll_log[MAX_PATH];
@@ -643,6 +655,8 @@ struct module_t {
     int evt_enter_replay_gallery;
     int evt_exit_replay_gallery;
     */
+    int evt_overlay_on;
+    int evt_key_down;
 };
 list<module_t*> _modules;
 module_t* _curr_m;
@@ -1173,6 +1187,51 @@ char *module_ball_name(module_t *m, char *name)
     return res;
 }
 
+char *module_overlay_on(module_t *m)
+{
+    char *res = NULL;
+    if (m->evt_overlay_on != 0) {
+        EnterCriticalSection(&_cs);
+        lua_pushvalue(m->L, m->evt_overlay_on);
+        lua_xmove(m->L, L, 1);
+        // push params
+        lua_pushvalue(L, 1); // ctx
+        if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+            const char *err = luaL_checkstring(L, -1);
+            logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+        }
+        else if (lua_isstring(L, -1)) {
+            const char *s = luaL_checkstring(L, -1);
+            memset(_overlay_utf8_text, 0, sizeof(_overlay_utf8_text));
+            strncpy(_overlay_utf8_text, s, sizeof(_overlay_utf8_text)-1);
+            res = _overlay_utf8_text;
+        }
+        lua_pop(L, 1);
+        LeaveCriticalSection(&_cs);
+    }
+    return res;
+}
+
+char *module_key_down(module_t *m, int vkey)
+{
+    char *res = NULL;
+    if (m->evt_key_down != 0) {
+        EnterCriticalSection(&_cs);
+        lua_pushvalue(m->L, m->evt_key_down);
+        lua_xmove(m->L, L, 1);
+        // push params
+        lua_pushvalue(L, 1); // ctx
+        lua_pushinteger(L, vkey); // ctx
+        if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
+            const char *err = luaL_checkstring(L, -1);
+            logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+        }
+        lua_pop(L, 1);
+        LeaveCriticalSection(&_cs);
+    }
+    return res;
+}
+
 char *module_rewrite(module_t *m, const char *file_name)
 {
     char *res(NULL);
@@ -1315,7 +1374,7 @@ wstring* have_content(char *file_name)
         }
 
         module_make_key(m, file_name, key, sizeof(key));
-               
+
         if (_config->_lookup_cache_enabled) {
             unordered_map<string,wstring*>::iterator j;
             j = m->cache->find(key);
@@ -1471,9 +1530,12 @@ void prep_stuff()
 
     SimpleVertex vertices[] =
     {
-        0.0f, 0.5f, 0.5f, // top
-        0.5f, -0.5f, 0.5f, // left
-        -0.5f, -0.5f, 0.5f, // right
+        -1.0f, 1.0f, 0.5f,
+        1.0f, 1.0f, 0.5f,
+        1.0f, 0.8f, 0.5f,
+        1.0f, 0.8f, 0.5f,
+        -1.0f, 0.8f, 0.5f,
+        -1.0f, 1.0f, 0.5f,
     };
     D3D11_BUFFER_DESC bd;
     bd.Usage = D3D11_USAGE_DEFAULT;
@@ -1503,7 +1565,33 @@ void prep_stuff()
     BlendState.RenderTarget[0].RenderTargetWriteMask = 0x0f;
     DX11.Device->CreateBlendState(&BlendState, &g_pBlendState);
 
+	hr = FW1CreateFactory(FW1_VERSION, &g_pFW1Factory);
+    if (FAILED(hr)) {
+        logu_("FW1CreateFactory failed\n");
+    }
+	hr = g_pFW1Factory->CreateFontWrapper(DX11.Device, L"Arial", &g_pFontWrapper);
+    if (FAILED(hr)) {
+        logu_("CreateFontWrapper failed\n");
+    }
+
+    _font_size = DX11.Height/30.0;
+
     logu_("prep done successfully!\n");
+}
+
+void draw_text(float font_size) {
+    swprintf(_overlay_text, L"%s | %s", _overlay_header.c_str(), _current_overlay_text);
+	g_pFontWrapper->DrawString(
+		DX11.Context,
+        _overlay_text,
+		font_size,// Font size
+		DX11.Width*0.01f,// X position
+		DX11.Height*0.0f,// Y position
+		0xd080ff80,// Text color, 0xAaBbGgRr
+		FW1_RESTORESTATE //0// Flags (for example FW1_RESTORESTATE to keep context states unchanged)
+	);
+	//pFontWrapper->Release();
+	//pFW1Factory->Release();
 }
 
 void draw_simple_test()
@@ -1552,7 +1640,9 @@ void draw_simple_test()
 
     DX11.Context->OMSetBlendState(g_pBlendState, NULL, 0xffffffff);
 
-    DX11.Context->Draw(3, 0); //3 vertices start at 0
+    DX11.Context->Draw(6, 0); //4 vertices start at 0
+
+    draw_text(_font_size);
 
     //cleanup
     g_pRenderTargetView->Release();
@@ -1563,7 +1653,26 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
     //logu_("Present called for swapChain: %p\n", swapChain);
 
     if (_overlay_on) {
-        // render a triangle
+        // ask modules for text
+        char *text = NULL;
+        if (_config->_lua_enabled) {
+            // lua callbacks
+            list<module_t*>::iterator i;
+            for (i = _modules.begin(); i != _modules.end(); i++) {
+                module_t *m = *i;
+                text = module_overlay_on(m);
+                if (text) {
+                    break;
+                }
+            }
+        }
+        if (text) {
+            wchar_t *ws = Utf8::utf8ToUnicode((BYTE*)text);
+            wcscpy(_current_overlay_text, ws);
+            Utf8::free(ws);
+        }
+
+        // render overlay
         DX11.Device->GetImmediateContext(&DX11.Context);
         draw_simple_test();
         DX11.Context->Release();
@@ -1600,6 +1709,8 @@ HRESULT sider_CreateSwapChain(IDXGIFactory1 *pFactory, IUnknown *pDevice, DXGI_S
     DXGI_SWAP_CHAIN_DESC desc;
     if (SUCCEEDED(DX11.SwapChain->GetDesc(&desc))) {
         DX11.Window = desc.OutputWindow;
+        DX11.Width = desc.BufferDesc.Width;
+        DX11.Height = desc.BufferDesc.Height;
         logu_("==> window handle: %p\n", DX11.Window);
     }
 
@@ -2293,6 +2404,18 @@ static int sider_context_register(lua_State *L)
         _curr_m->evt_get_ball_name = lua_gettop(_curr_m->L);
         logu_("Registered for \"%s\" event\n", event_key);
     }
+    else if (strcmp(event_key, "overlay_on")==0) {
+        lua_pushvalue(L, -1);
+        lua_xmove(L, _curr_m->L, 1);
+        _curr_m->evt_overlay_on = lua_gettop(_curr_m->L);
+        logu_("Registered for \"%s\" event\n", event_key);
+    }
+    else if (strcmp(event_key, "key_down")==0) {
+        lua_pushvalue(L, -1);
+        lua_xmove(L, _curr_m->L, 1);
+        _curr_m->evt_key_down = lua_gettop(_curr_m->L);
+        logu_("Registered for \"%s\" event\n", event_key);
+    }
     /*
     else if (strcmp(event_key, "get_stadium_name")==0) {
         lua_pushvalue(L, -1);
@@ -2914,6 +3037,9 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
                 log_(L"Sider DLL: version %s\n", version.c_str());
                 log_(L"Filename match: %s\n", match->c_str());
 
+                _overlay_header = L"sider ";
+                _overlay_header += version;
+
                 install_func(NULL);
 
                 delete match;
@@ -2976,8 +3102,16 @@ LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam)
         }
 
         if (_overlay_on) {
-            logu_("sider_keyboard_proc: wParam=%p, lParam=%p\n", wParam, lParam);
-            // todo: deliver keyboard events to modules
+            //logu_("sider_keyboard_proc: wParam=%p, lParam=%p\n", wParam, lParam);
+            // deliver keyboard events to modules
+            if (_config->_lua_enabled && ((lParam & 0x80000000) == 0)) {
+                // lua callbacks
+                list<module_t*>::iterator i;
+                for (i = _modules.begin(); i != _modules.end(); i++) {
+                    module_t *m = *i;
+                    module_key_down(m, (int)wParam);
+                }
+            }
         }
     }
     return CallNextHookEx(handle, code, wParam, lParam);

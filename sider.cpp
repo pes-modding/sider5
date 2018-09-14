@@ -219,6 +219,25 @@ struct SimpleVertex {
     float z;
 };
 
+SimpleVertex g_vertices_bottom[] =
+{
+    -1.0f, -1.0f, 0.5f,
+    1.0f, -0.8f, 0.5f,
+    1.0f, -1.0f, 0.5f,
+    -1.0f, -1.0f, 0.5f,
+    -1.0f, -0.8f, 0.5f,
+    1.0f, -0.8f, 0.5f,
+};
+SimpleVertex g_vertices[] =
+{
+    -1.0f, 1.0f, 0.5f,
+    1.0f, 1.0f, 0.5f,
+    1.0f, 0.8f, 0.5f,
+    1.0f, 0.8f, 0.5f,
+    -1.0f, 0.8f, 0.5f,
+    -1.0f, 1.0f, 0.5f,
+};
+
 ID3D11BlendState* g_pBlendState = NULL;
 ID3D11InputLayout*          g_pInputLayout = NULL;
 ID3D11Buffer*               g_pVertexBuffer = NULL;
@@ -318,6 +337,10 @@ char _overlay_utf8_text[1024];
 #define DEFAULT_OVERLAY_TEXT_COLOR 0xc080ff80
 #define DEFAULT_OVERLAY_BACKGROUND_COLOR 0x80102010
 #define DEFAULT_OVERLAY_FONT L"Arial"
+#define DEFAULT_OVERLAY_FONT_SIZE 0
+#define DEFAULT_OVERLAY_LOCATION 0
+#define DEFAULT_OVERLAY_VKEY_TOGGLE 0x20
+#define DEFAULT_OVERLAY_VKEY_NEXT_MODULE 0x31
 
 wchar_t module_filename[MAX_PATH];
 wchar_t dll_log[MAX_PATH];
@@ -355,6 +378,10 @@ public:
     wstring _overlay_font;
     DWORD _overlay_text_color;
     DWORD _overlay_background_color;
+    int _overlay_location;
+    int _overlay_font_size;
+    int _overlay_vkey_toggle;
+    int _overlay_vkey_next_module;
     int _num_minutes;
     BYTE *_hp_at_read_file;
     BYTE *_hp_at_get_size;
@@ -396,6 +423,10 @@ public:
                  _overlay_font(DEFAULT_OVERLAY_FONT),
                  _overlay_text_color(DEFAULT_OVERLAY_TEXT_COLOR),
                  _overlay_background_color(DEFAULT_OVERLAY_BACKGROUND_COLOR),
+                 _overlay_font_size(DEFAULT_OVERLAY_FONT_SIZE),
+                 _overlay_location(DEFAULT_OVERLAY_LOCATION),
+                 _overlay_vkey_toggle(DEFAULT_OVERLAY_VKEY_TOGGLE),
+                 _overlay_vkey_next_module(DEFAULT_OVERLAY_VKEY_NEXT_MODULE),
                  _key_cache_ttl_sec(10),
                  _rewrite_cache_ttl_sec(10),
                  _hp_at_read_file(NULL),
@@ -478,6 +509,24 @@ public:
                     _overlay_background_color = v;
                 }
             }
+            else if (wcscmp(L"overlay.location", key.c_str())==0) {
+                _overlay_location = 0;
+                if (value == L"bottom") {
+                    _overlay_location = 1;
+                }
+            }
+            else if (wcscmp(L"overlay.vkey.toggle", key.c_str())==0) {
+                int v;
+                if (swscanf(value.c_str(), L"%x", &v)==1) {
+                    _overlay_vkey_toggle = v;
+                }
+            }
+            else if (wcscmp(L"overlay.vkey.next-module", key.c_str())==0) {
+                int v;
+                if (swscanf(value.c_str(), L"%x", &v)==1) {
+                    _overlay_vkey_next_module = v;
+                }
+            }
             else if (wcscmp(L"lua.extra-globals", key.c_str())==0) {
                 bool done(false);
                 int start = 0, end = 0;
@@ -529,6 +578,10 @@ public:
 
         _overlay_enabled = GetPrivateProfileInt(_section_name.c_str(),
             L"overlay.enabled", _overlay_enabled,
+            config_ini);
+
+        _overlay_font_size = GetPrivateProfileInt(_section_name.c_str(),
+            L"overlay.font-size", _overlay_font_size,
             config_ini);
 
         _livecpk_enabled = GetPrivateProfileInt(_section_name.c_str(),
@@ -675,6 +728,7 @@ int _rewrite_count(0);
 struct module_t {
     lookup_cache_t *cache;
     lua_State* L;
+    wstring *filename;
     int evt_trophy_check;
     int evt_lcpk_make_key;
     int evt_lcpk_get_filepath;
@@ -708,6 +762,7 @@ struct module_t {
 };
 list<module_t*> _modules;
 module_t* _curr_m;
+list<module_t*>::iterator _curr_overlay_m;
 
 bool init_paths() {
     wchar_t *p;
@@ -1583,30 +1638,6 @@ void prep_stuff()
 
     pBlobVS->Release();
 
-    SimpleVertex vertices[] =
-    {
-        -1.0f, 1.0f, 0.5f,
-        1.0f, 1.0f, 0.5f,
-        1.0f, 0.8f, 0.5f,
-        1.0f, 0.8f, 0.5f,
-        -1.0f, 0.8f, 0.5f,
-        -1.0f, 1.0f, 0.5f,
-    };
-    D3D11_BUFFER_DESC bd;
-    bd.Usage = D3D11_USAGE_DEFAULT;
-    bd.ByteWidth = sizeof(vertices);
-    bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    bd.CPUAccessFlags = 0;
-    bd.MiscFlags = 0;
-    bd.StructureByteStride = 0;
-    D3D11_SUBRESOURCE_DATA initData;
-    initData.pSysMem = vertices;
-    hr = DX11.Device->CreateBuffer(&bd, &initData, &g_pVertexBuffer);
-    if (FAILED(hr)) {
-        logu_("DX11.Device->CreateBuffer failed\n");
-        return;
-    }
-
     D3D11_BLEND_DESC BlendState;
     ZeroMemory(&BlendState, sizeof(D3D11_BLEND_DESC));
 
@@ -1629,21 +1660,91 @@ void prep_stuff()
         logu_("CreateFontWrapper failed\n");
     }
 
-    _font_size = DX11.Height/30.0;
+    // default to automatic font size
+    _font_size = DX11.Height/40.0;
+    if (_config->_overlay_font_size > 0) {
+        _font_size = (float)_config->_overlay_font_size;
+    }
 
     logu_("prep done successfully!\n");
 }
 
-void draw_text(float font_size) {
-    swprintf(_overlay_text, L"%s | %s", _overlay_header.c_str(), _current_overlay_text);
+void prep_text(float font_size)
+{
+    swprintf(_overlay_text, L"%s | %s | %s", _overlay_header.c_str(), (*_curr_overlay_m)->filename->c_str(), _current_overlay_text);
+    UINT flags = 0; //FW1_RESTORESTATE;
+    //if (_config->_overlay_location == 1) {
+    //    flags |= FW1_BOTTOM;
+    //}
+
+    FW1_RECTF rectIn;
+    rectIn.Left = 5.0f;
+    rectIn.Top = 0.0f;
+    rectIn.Right = DX11.Width-5.0f;
+    rectIn.Bottom = DX11.Height;
+	FW1_RECTF rect = g_pFontWrapper->MeasureString(_overlay_text, _config->_overlay_font.c_str(), font_size, &rectIn, flags);
+    //logu_("rect: %0.2f,%0.2f,%0.2f,%0.2f\n", rect.Left,rect.Top,rect.Right,rect.Bottom);
+    float height = rect.Bottom;
+    if (height < 0) { height = DX11.Height + height; }
+    float rel_height = (height + rect.Top) / DX11.Height;
+    //logu_("rel_height: %0.2f\n", rel_height);
+
+    SimpleVertex *vertices = g_vertices;
+    if (_config->_overlay_location == 0) {
+        vertices[2].y = 1.0f - rel_height*2.0;
+        vertices[3].y = 1.0f - rel_height*2.0;
+        vertices[4].y = 1.0f - rel_height*2.0;
+    }
+    else {
+        // bottom
+        vertices = g_vertices_bottom;
+        vertices[1].y = -1.0f + rel_height*2.0;
+        vertices[4].y = -1.0f + rel_height*2.0;
+        vertices[5].y = -1.0f + rel_height*2.0;
+    }
+
+    D3D11_BUFFER_DESC bd;
+    bd.Usage = D3D11_USAGE_DEFAULT;
+    bd.ByteWidth = sizeof(g_vertices);
+    bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    bd.CPUAccessFlags = 0;
+    bd.MiscFlags = 0;
+    bd.StructureByteStride = 0;
+    D3D11_SUBRESOURCE_DATA initData;
+    initData.pSysMem = vertices;
+    hr = DX11.Device->CreateBuffer(&bd, &initData, &g_pVertexBuffer);
+    if (FAILED(hr)) {
+        logu_("DX11.Device->CreateBuffer failed\n");
+        return;
+    }
+}
+
+void draw_text(float font_size)
+{
+    UINT flags = FW1_RESTORESTATE;
+    //FLOAT y = DX11.Height*0.0f;
+    if (_config->_overlay_location == 1) {
+        flags |= FW1_BOTTOM;
+        //y = DX11.Height*1.0f;
+    }
+
+    FW1_RECTF rectIn;
+    rectIn.Left = 5.0f;
+    rectIn.Top = 0.0f;
+    rectIn.Right = DX11.Width-5.0f;
+    rectIn.Bottom = DX11.Height;
+
 	g_pFontWrapper->DrawString(
 		DX11.Context,
         _overlay_text,
+        _config->_overlay_font.c_str(),
 		font_size,// Font size
-		DX11.Width*0.01f,// X position
-		DX11.Height*0.0f,// Y position
+		//DX11.Width*0.01f,// X position
+		//y,// Y position
+        &rectIn,
         _config->_overlay_text_color, //0xd080ff80 - Text color, 0xAaBbGgRr
-		FW1_RESTORESTATE //0// Flags (for example FW1_RESTORESTATE to keep context states unchanged)
+        NULL, NULL,
+		flags //0// Flags (for example FW1_RESTORESTATE to keep context states unchanged)
 	);
 	//pFontWrapper->Release();
 	//pFW1Factory->Release();
@@ -1708,29 +1809,31 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
     //logu_("Present called for swapChain: %p\n", swapChain);
 
     if (_overlay_on) {
-        // ask modules for text
+        // ask currently active module for text
         char *text = NULL;
         if (_config->_lua_enabled) {
             // lua callbacks
-            list<module_t*>::iterator i;
-            for (i = _modules.begin(); i != _modules.end(); i++) {
-                module_t *m = *i;
+            if (_curr_overlay_m != _modules.end()) {
+                module_t *m = *_curr_overlay_m;
                 text = module_overlay_on(m);
                 if (text) {
-                    break;
+                    wchar_t *ws = Utf8::utf8ToUnicode((BYTE*)text);
+                    wcscpy(_current_overlay_text, ws);
+                    Utf8::free(ws);
                 }
+                else {
+                    // empty
+                    _current_overlay_text[0] = '\0';
+                }
+
+                // render overlay
+                DX11.Device->GetImmediateContext(&DX11.Context);
+                prep_text(_font_size);
+                draw_simple_test();
+                g_pVertexBuffer->Release();
+                DX11.Context->Release();
             }
         }
-        if (text) {
-            wchar_t *ws = Utf8::utf8ToUnicode((BYTE*)text);
-            wcscpy(_current_overlay_text, ws);
-            Utf8::free(ws);
-        }
-
-        // render overlay
-        DX11.Device->GetImmediateContext(&DX11.Context);
-        draw_simple_test();
-        DX11.Context->Release();
     }
 
     HRESULT hr = _org_Present(swapChain, SyncInterval, Flags);
@@ -2725,6 +2828,7 @@ void init_lua_support()
 
             module_t *m = new module_t();
             memset(m, 0, sizeof(module_t));
+            m->filename = new wstring(it->c_str());
             m->cache = new lookup_cache_t();
             m->L = luaL_newstate();
             _curr_m = m;
@@ -2745,6 +2849,15 @@ void init_lua_support()
 
                 // add to list of loaded modules
                 _modules.push_back(m);
+            }
+        }
+        _curr_overlay_m = _modules.end();
+        list<module_t*>::iterator j;
+        for (j = _modules.begin(); j != _modules.end(); j++) {
+            module_t *m = *j;
+            if (m->evt_overlay_on) {
+                _curr_overlay_m = j;
+                break;
             }
         }
         log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
@@ -2793,6 +2906,10 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"overlay.font = %s\n", _config->_overlay_font.c_str());
     log_(L"overlay.text-color = 0x%08x\n", _config->_overlay_text_color);
     log_(L"overlay.background-color = 0x%08x\n", _config->_overlay_background_color);
+    log_(L"overlay.location = %d\n", _config->_overlay_location);
+    log_(L"overlay.font-size = %d\n", _config->_overlay_font_size);
+    log_(L"overlay.vkey.toggle = 0x%02x\n", _config->_overlay_vkey_toggle);
+    log_(L"overlay.vkey.next-module = 0x%02x\n", _config->_overlay_vkey_next_module);
     log_(L"close.on.exit = %d\n", _config->_close_sider_on_exit);
     log_(L"match.minutes = %d\n", _config->_num_minutes);
 
@@ -3153,21 +3270,45 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
 LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam)
 {
     if (code == HC_ACTION) {
-        if (wParam == 0x20 && ((lParam & 0x80000000) == 0)) {
-            // pressed [Space]
+        if (wParam == _config->_overlay_vkey_toggle && ((lParam & 0x80000000) == 0)) {
             _overlay_on = !_overlay_on;
             logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
         }
 
         if (_overlay_on) {
             //logu_("sider_keyboard_proc: wParam=%p, lParam=%p\n", wParam, lParam);
-            // deliver keyboard events to modules
+            // deliver keyboard event to module
             if (_config->_lua_enabled && ((lParam & 0x80000000) == 0)) {
-                // lua callbacks
-                list<module_t*>::iterator i;
-                for (i = _modules.begin(); i != _modules.end(); i++) {
-                    module_t *m = *i;
-                    module_key_down(m, (int)wParam);
+                if (_curr_overlay_m != _modules.end()) {
+                    // module switching keys
+                    // "[" - 0xdb, "]" - 0xdd, "~" - 0xc0, "1" - 0x31
+                    if (wParam == _config->_overlay_vkey_next_module) {
+                        // next module
+                        _curr_overlay_m++;
+                        for (; _curr_overlay_m != _modules.end(); _curr_overlay_m++) {
+                            module_t *m = *_curr_overlay_m;
+                            if (m->evt_overlay_on) {
+                                log_(L"now active module on overlay: %s\n", m->filename->c_str());
+                                break;
+                            }
+                        }
+                        if (_curr_overlay_m == _modules.end()) {
+                            // start from beginning again
+                            _curr_overlay_m = _modules.begin();
+                            for (; _curr_overlay_m != _modules.end(); _curr_overlay_m++) {
+                                module_t *m = *_curr_overlay_m;
+                                if (m->evt_overlay_on) {
+                                    log_(L"now active module on overlay: %s\n", m->filename->c_str());
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    else {
+                        // lua callback
+                        module_t *m = *_curr_overlay_m;
+                        module_key_down(m, (int)wParam);
+                    }
                 }
             }
         }

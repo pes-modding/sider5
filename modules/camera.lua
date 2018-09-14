@@ -21,10 +21,9 @@ local NEXT_VALUE_KEY = 0xbb
 local overlay_curr = 1
 local overlay_states = {
     { prv = "", curr_name = "zoom range", curr_prop = "camera_range_zoom", nxt = " >", decr = -0.1, incr = 0.1 },
-    { prv = "< ", curr_name = "height range ", curr_prop = "camera_range_height", nxt = " >", decr = -0.05, incr = 0.05 },
-    { prv = "< ", curr_name = "angle range ", curr_prop = "camera_range_angle", nxt = "", decr = -1, incr = 1 },
+    { prv = "< ", curr_name = "height range", curr_prop = "camera_range_height", nxt = " >", decr = -0.05, incr = 0.05 },
+    { prv = "< ", curr_name = "angle range", curr_prop = "camera_range_angle", nxt = "", decr = -1, incr = 1 },
 }
-
 local game_info = {
     camera_range_zoom   = { 0x04, "f", 4},   --> default: 19.05
     camera_range_height = { 0x08, "f", 4},   --> default: 0.3

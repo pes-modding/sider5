@@ -43,12 +43,23 @@ function m.after_set_conditions(ctx)
     tlog("ctx: %s", t2s(ctx))
 end
 
+function m.get_ball_name(ctx, ball_name)
+    tlog("ball name: %s", ball_name)
+    tlog("ctx: %s", t2s(ctx))
+end
+
+function m.overlay_on(ctx)
+    return(string.format("ctx: %s", t2s(ctx)))
+end
+
 function m.init(ctx)
    ctx.register("set_teams", m.set_teams)
    ctx.register("set_match_time", m.set_match_time)
    ctx.register("set_stadium", m.set_stadium)
    ctx.register("set_conditions", m.set_conditions)
    ctx.register("after_set_conditions", m.after_set_conditions)
+   ctx.register("get_ball_name", m.get_ball_name)
+   ctx.register("overlay_on", m.overlay_on)
 end
 
 return m

@@ -237,8 +237,7 @@ char* g_strVS =
 char* g_strPS =
     "void PS( out float4 colorOut : SV_Target )\n"
     "{\n"
-    "    // Make each pixel yellow, with alpha = 1\n"
-    "    colorOut = float4( 0.0f, 0.1f, 0.0f, 0.5f );\n"
+    "    colorOut = float4( %0.2f, %0.2f, %0.2f, %0.2f );\n"
     "}\n";
 
 extern "C" BOOL sider_read_file(
@@ -316,6 +315,10 @@ wchar_t _overlay_text[1024];
 wchar_t _current_overlay_text[1024] = L"hello world!";
 char _overlay_utf8_text[1024];
 
+#define DEFAULT_OVERLAY_TEXT_COLOR 0xc080ff80
+#define DEFAULT_OVERLAY_BACKGROUND_COLOR 0x80102010
+#define DEFAULT_OVERLAY_FONT L"Arial"
+
 wchar_t module_filename[MAX_PATH];
 wchar_t dll_log[MAX_PATH];
 wchar_t dll_ini[MAX_PATH];
@@ -349,6 +352,9 @@ public:
     bool _start_minimized;
     bool _free_side_select;
     bool _overlay_enabled;
+    wstring _overlay_font;
+    DWORD _overlay_text_color;
+    DWORD _overlay_background_color;
     int _num_minutes;
     BYTE *_hp_at_read_file;
     BYTE *_hp_at_get_size;
@@ -387,6 +393,9 @@ public:
                  _start_minimized(false),
                  _free_side_select(false),
                  _overlay_enabled(false),
+                 _overlay_font(DEFAULT_OVERLAY_FONT),
+                 _overlay_text_color(DEFAULT_OVERLAY_TEXT_COLOR),
+                 _overlay_background_color(DEFAULT_OVERLAY_BACKGROUND_COLOR),
                  _key_cache_ttl_sec(10),
                  _rewrite_cache_ttl_sec(10),
                  _hp_at_read_file(NULL),
@@ -429,6 +438,45 @@ public:
             }
             else if (wcscmp(L"lua.module", key.c_str())==0) {
                 _module_names.push_back(value);
+            }
+            else if (wcscmp(L"overlay.font", key.c_str())==0) {
+                _overlay_font = value;
+            }
+            else if (wcscmp(L"overlay.text-color", key.c_str())==0) {
+                if (value.size() >= 8) {
+                    DWORD c,v;
+                    // red
+                    if (swscanf(value.substr(0,2).c_str(), L"%x", &c)==1) { v = c; }
+                    else if (swscanf(value.substr(0,2).c_str(), L"%X", &c)==1) { v = c; }
+                    // green
+                    if (swscanf(value.substr(2,2).c_str(), L"%x", &c)==1) { v = v | (c << 8); }
+                    else if (swscanf(value.substr(2,2).c_str(), L"%X", &c)==1) { v = v | (c << 8); }
+                    // blue
+                    if (swscanf(value.substr(4,2).c_str(), L"%x", &c)==1) { v = v | (c << 16); }
+                    else if (swscanf(value.substr(4,2).c_str(), L"%X", &c)==1) { v = v | (c << 16); }
+                    // alpha
+                    if (swscanf(value.substr(6,2).c_str(), L"%x", &c)==1) { v = v | (c << 24); }
+                    else if (swscanf(value.substr(6,2).c_str(), L"%X", &c)==1) { v = v | (c << 24); }
+                    _overlay_text_color = v;
+                }
+            }
+            else if (wcscmp(L"overlay.background-color", key.c_str())==0) {
+                if (value.size() >= 8) {
+                    DWORD c,v;
+                    // red
+                    if (swscanf(value.substr(0,2).c_str(), L"%x", &c)==1) { v = c; }
+                    else if (swscanf(value.substr(0,2).c_str(), L"%X", &c)==1) { v = c; }
+                    // green
+                    if (swscanf(value.substr(2,2).c_str(), L"%x", &c)==1) { v = v | (c << 8); }
+                    else if (swscanf(value.substr(2,2).c_str(), L"%X", &c)==1) { v = v | (c << 8); }
+                    // blue
+                    if (swscanf(value.substr(4,2).c_str(), L"%x", &c)==1) { v = v | (c << 16); }
+                    else if (swscanf(value.substr(4,2).c_str(), L"%X", &c)==1) { v = v | (c << 16); }
+                    // alpha
+                    if (swscanf(value.substr(6,2).c_str(), L"%x", &c)==1) { v = v | (c << 24); }
+                    else if (swscanf(value.substr(6,2).c_str(), L"%X", &c)==1) { v = v | (c << 24); }
+                    _overlay_background_color = v;
+                }
             }
             else if (wcscmp(L"lua.extra-globals", key.c_str())==0) {
                 bool done(false);
@@ -1491,7 +1539,14 @@ void prep_stuff()
 
     // Compile and create the pixel shader
     ID3D10Blob* pBlobPS = NULL;
-    hr = D3DCompile(g_strPS, lstrlenA(g_strPS) + 1, "PS", NULL, NULL, "PS",
+    char pixel_shader[512];
+    memset(pixel_shader, 0, sizeof(pixel_shader));
+    float r = float(_config->_overlay_background_color & 0x00ff)/255.0;
+    float g = float((_config->_overlay_background_color & 0x00ff00) >> 8)/255.0;
+    float b = float((_config->_overlay_background_color & 0x00ff0000) >> 16)/255.0;
+    float a = float((_config->_overlay_background_color & 0x00ff000000) >> 24)/255.0;
+    sprintf(pixel_shader, g_strPS, r, g, b, a);
+    hr = D3DCompile(pixel_shader, lstrlenA(pixel_shader) + 1, "PS", NULL, NULL, "PS",
         "ps_4_0", dwShaderFlags, 0, &pBlobPS, &pBlobError);
     if (FAILED(hr))
     {
@@ -1569,7 +1624,7 @@ void prep_stuff()
     if (FAILED(hr)) {
         logu_("FW1CreateFactory failed\n");
     }
-	hr = g_pFW1Factory->CreateFontWrapper(DX11.Device, L"Arial", &g_pFontWrapper);
+	hr = g_pFW1Factory->CreateFontWrapper(DX11.Device, _config->_overlay_font.c_str(), &g_pFontWrapper);
     if (FAILED(hr)) {
         logu_("CreateFontWrapper failed\n");
     }
@@ -1587,7 +1642,7 @@ void draw_text(float font_size) {
 		font_size,// Font size
 		DX11.Width*0.01f,// X position
 		DX11.Height*0.0f,// Y position
-		0xd080ff80,// Text color, 0xAaBbGgRr
+        _config->_overlay_text_color, //0xd080ff80 - Text color, 0xAaBbGgRr
 		FW1_RESTORESTATE //0// Flags (for example FW1_RESTORESTATE to keep context states unchanged)
 	);
 	//pFontWrapper->Release();
@@ -2735,6 +2790,9 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"start.minimized = %d\n", _config->_start_minimized);
     log_(L"free.side.select = %d\n", _config->_free_side_select);
     log_(L"overlay.enabled = %d\n", _config->_overlay_enabled);
+    log_(L"overlay.font = %s\n", _config->_overlay_font.c_str());
+    log_(L"overlay.text-color = 0x%08x\n", _config->_overlay_text_color);
+    log_(L"overlay.background-color = 0x%08x\n", _config->_overlay_background_color);
     log_(L"close.on.exit = %d\n", _config->_close_sider_on_exit);
     log_(L"match.minutes = %d\n", _config->_num_minutes);
 

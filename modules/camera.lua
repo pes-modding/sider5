@@ -1,7 +1,7 @@
 --[[
 =========================
 
-camera module v1.4
+camera module
 Game research by: nesa24
 Requires: sider.dll 5.1.0
 
@@ -9,6 +9,7 @@ Requires: sider.dll 5.1.0
 --]]
 
 local m = {}
+m.version = "1.4"
 local hex = memory.hex
 local settings
 
@@ -58,7 +59,28 @@ local function load_ini(ctx, filename)
     return t
 end
 
-local function apply_settings(log_it)
+local function save_ini(ctx, filename)
+    local f = io.open(ctx.sider_dir .. "\\" .. filename, "wt")
+    f:write(string.format("# Camera settings. Written by camera.lua " .. m.version .. "\n"))
+    f:write("\n")
+    local keys = {}
+    for name,value in pairs(settings) do
+        keys[#keys + 1] = name
+    end
+    table.sort(keys)
+    for i,name in ipairs(keys) do
+        local value = settings[name]
+        if name == "replays" then
+            f:write(string.format("%s = %s\n", name, value))
+        else
+            f:write(string.format("%s = %0.2f\n", name, value))
+        end
+    end
+    f:write("\n")
+    f:close()
+end
+
+local function apply_settings(ctx, log_it, save_it)
     for name,value in pairs(settings) do
         local entry = game_info[name]
         if entry then
@@ -86,10 +108,13 @@ local function apply_settings(log_it)
             end
         end
     end
+    if (save_it) then
+        save_ini(ctx, "camera.ini")
+    end
 end
 
 function m.set_teams(ctx, home, away)
-    apply_settings(true)
+    apply_settings(ctx, true)
 end
 
 function m.overlay_on(ctx)
@@ -102,7 +127,8 @@ function m.overlay_on(ctx)
             ui_lines[i] = string.format("\n     %s", setting)
         end
     end
-    return string.format("version 1.4\nKeys: [9][0] - choose setting, [-][+] - modify value, [8] - restore defaults%s", table.concat(ui_lines))
+    return string.format("version %s\nKeys: [9][0] - choose setting, [-][+] - modify value, [8] - restore defaults%s",
+        m.version, table.concat(ui_lines))
 end
 
 function m.key_down(ctx, vkey)
@@ -121,7 +147,7 @@ function m.key_down(ctx, vkey)
         elseif s.nextf ~= nil then
             settings[s.curr_prop] = s.nextf(settings[s.curr_prop])
         end
-        apply_settings()
+        apply_settings(ctx, false, true)
     elseif vkey == PREV_VALUE_KEY then
         local s = overlay_states[overlay_curr]
         if s.decr ~= nil then
@@ -129,12 +155,12 @@ function m.key_down(ctx, vkey)
         elseif s.prevf ~= nil then
             settings[s.curr_prop] = s.prevf(settings[s.curr_prop])
         end
-        apply_settings()
+        apply_settings(ctx, false, true)
     elseif vkey == RESTORE_KEY then
         for i,s in ipairs(overlay_states) do
             settings[s.curr_prop] = s.def
         end
-        apply_settings()
+        apply_settings(ctx, false, true)
     end
 end
 

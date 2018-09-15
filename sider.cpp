@@ -3278,7 +3278,7 @@ LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam)
     if (code == HC_ACTION) {
         if (wParam == _config->_overlay_vkey_toggle && ((lParam & 0x80000000) == 0)) {
             _overlay_on = !_overlay_on;
-            logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
+            DBG(64) logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
         }
 
         if (_overlay_on) {

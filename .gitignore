@@ -10,3 +10,5 @@ lua51.lib
 memlib_lua.h
 *.log*
 *~
+Debug/
+Release/

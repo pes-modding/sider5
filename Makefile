@@ -29,6 +29,7 @@ LUAJIT=luajit.exe
 FW1INC=/I soft\FW1FontWrapper\Source
 FW1LIB=FW1FontWrapper.lib
 FW1LIBPATH=soft\FW1FontWrapper\Release\x64
+FW1LIBROOT=soft\FW1FontWrapper
 
 all: sider.exe sider.dll
 
@@ -49,6 +50,9 @@ makememlibhdr.exe: makememlibhdr.c
 
 $(LUALIBPATH)\$(LUALIB):
 	cd $(LUALIBPATH) && msvcbuild.bat
+
+$(FW1LIBPATH)\$(FW1LIB):
+    cd $(FW1LIBROOT) && msbuild /p:Configuration=Release
 
 util.obj: util.asm
     ml64 /c util.asm
@@ -72,4 +76,5 @@ clean:
 
 clean-all: clean
     cd $(LUALIBPATH) && del /Q lua51.exp lua51.lib lua51.dll luajit.exe
+    cd $(FW1LIBROOT) && del /Q /S Debug Release
 

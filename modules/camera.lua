@@ -21,10 +21,10 @@ local NEXT_VALUE_KEY = 0xbb
 
 local overlay_curr = 1
 local overlay_states = {
-    { ui = "camera zoom range: %0.2f", curr_prop = "camera_range_zoom", decr = -0.1, incr = 0.1, def = 19.05 },
-    { ui = "camera height range: %0.2f", curr_prop = "camera_range_height", decr = -0.05, incr = 0.05, def = 0.3 },
-    { ui = "camera angle range: %0.2f", curr_prop = "camera_range_angle", decr = -1, incr = 1, def = 1.35 },
-    { ui = "replays: %s", curr_prop = "replays", def = "on",
+    { ui = "camera zoom range: %0.2f", prop = "camera_range_zoom", decr = -0.1, incr = 0.1, def = 19.05 },
+    { ui = "camera height range: %0.2f", prop = "camera_range_height", decr = -0.05, incr = 0.05, def = 0.3 },
+    { ui = "camera angle range: %0.2f", prop = "camera_range_angle", decr = -1, incr = 1, def = 1.35 },
+    { ui = "replays: %s", prop = "replays", def = "on",
         nextf = function(v)
             return (v == "on") and "off" or "on"
         end,
@@ -60,23 +60,16 @@ local function load_ini(ctx, filename)
 end
 
 local function save_ini(ctx, filename)
-    local f = io.open(ctx.sider_dir .. "\\" .. filename, "wt")
-    f:write(string.format("# Camera settings. Written by camera.lua " .. m.version .. "\n"))
-    f:write("\n")
-    local keys = {}
-    for name,value in pairs(settings) do
-        keys[#keys + 1] = name
+    local f,err = io.open(ctx.sider_dir .. "\\" .. filename, "wt")
+    if not f then
+        log(string.format("PROBLEM saving settings: %s", tostring(err)))
+        return
     end
-    table.sort(keys)
-    for i,name in ipairs(keys) do
-        local value = settings[name]
-        if name == "replays" then
-            f:write(string.format("%s = %s\n", name, value))
-        else
-            f:write(string.format("%s = %0.2f\n", name, value))
-        end
-    end
-    f:write("\n")
+    f:write(string.format("# Camera settings. Written by camera.lua " .. m.version .. "\n\n"))
+    f:write(string.format("camera_range_zoom = %0.2f\n", settings.camera_range_zoom))
+    f:write(string.format("camera_range_height = %0.2f\n", settings.camera_range_height))
+    f:write(string.format("camera_range_angle = %0.2f\n", settings.camera_range_angle))
+    f:write(string.format("replays = %s\n\n", settings.replays))
     f:close()
 end
 
@@ -120,7 +113,7 @@ end
 function m.overlay_on(ctx)
     for i,v in ipairs(overlay_states) do
         local s = overlay_states[i]
-        local setting = string.format(s.ui, settings[s.curr_prop])
+        local setting = string.format(s.ui, settings[s.prop])
         if i == overlay_curr then
             ui_lines[i] = string.format("\n---> %s <---", setting)
         else
@@ -143,22 +136,22 @@ function m.key_down(ctx, vkey)
     elseif vkey == NEXT_VALUE_KEY then
         local s = overlay_states[overlay_curr]
         if s.incr ~= nil then
-            settings[s.curr_prop] = settings[s.curr_prop] + s.incr
+            settings[s.prop] = settings[s.prop] + s.incr
         elseif s.nextf ~= nil then
-            settings[s.curr_prop] = s.nextf(settings[s.curr_prop])
+            settings[s.prop] = s.nextf(settings[s.prop])
         end
         apply_settings(ctx, false, true)
     elseif vkey == PREV_VALUE_KEY then
         local s = overlay_states[overlay_curr]
         if s.decr ~= nil then
-            settings[s.curr_prop] = settings[s.curr_prop] + s.decr
+            settings[s.prop] = settings[s.prop] + s.decr
         elseif s.prevf ~= nil then
-            settings[s.curr_prop] = s.prevf(settings[s.curr_prop])
+            settings[s.prop] = s.prevf(settings[s.prop])
         end
         apply_settings(ctx, false, true)
     elseif vkey == RESTORE_KEY then
         for i,s in ipairs(overlay_states) do
-            settings[s.curr_prop] = s.def
+            settings[s.prop] = s.def
         end
         apply_settings(ctx, false, true)
     end

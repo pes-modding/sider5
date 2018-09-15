@@ -1808,6 +1808,12 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
 {
     //logu_("Present called for swapChain: %p\n", swapChain);
 
+    if (_config->_overlay_enabled) {
+        if (kb_handle == NULL) {
+            kb_handle = SetWindowsHookEx(WH_KEYBOARD, sider_keyboard_proc, myHDLL, GetCurrentThreadId());
+        }
+    }
+
     if (_overlay_on) {
         // ask currently active module for text
         char *text = NULL;
@@ -2921,10 +2927,6 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"hook.trophy-check = %d\n", _config->_hook_trophy_check);
     log_(L"--------------------------\n");
 
-    if (_config->_overlay_enabled) {
-        kb_handle = SetWindowsHookEx(WH_KEYBOARD, sider_keyboard_proc, myHDLL, 0);
-    }
-
     for (list<wstring>::iterator it = _config->_cpk_roots.begin();
             it != _config->_cpk_roots.end();
             it++) {
@@ -3269,6 +3271,10 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
 
 LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam)
 {
+    if (code < 0) {
+        return CallNextHookEx(kb_handle, code, wParam, lParam);
+    }
+
     if (code == HC_ACTION) {
         if (wParam == _config->_overlay_vkey_toggle && ((lParam & 0x80000000) == 0)) {
             _overlay_on = !_overlay_on;
@@ -3313,7 +3319,7 @@ LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam)
             }
         }
     }
-    return CallNextHookEx(handle, code, wParam, lParam);
+    return CallNextHookEx(kb_handle, code, wParam, lParam);
 }
 
 LRESULT CALLBACK meconnect(int code, WPARAM wParam, LPARAM lParam)

@@ -1570,6 +1570,18 @@ void sider_get_size(char *filename, struct FILE_INFO *fi)
 
 void prep_stuff()
 {
+    LoadLibrary(L"d3d_compiler_46");
+	hr = FW1CreateFactory(FW1_VERSION, &g_pFW1Factory);
+    if (FAILED(hr)) {
+        logu_("FW1CreateFactory failed with: %p\n", hr);
+        return;
+    }
+	hr = g_pFW1Factory->CreateFontWrapper(DX11.Device, L"Arial", &g_pFontWrapper);
+    if (FAILED(hr)) {
+        logu_("CreateFontWrapper failed with: %p\n", hr);
+        return;
+    }
+
     DWORD dwShaderFlags = D3D10_SHADER_ENABLE_STRICTNESS;
     ID3D10Blob* pBlobVS = NULL;
     ID3D10Blob* pBlobError = NULL;
@@ -1587,10 +1599,15 @@ void prep_stuff()
     }
     hr = DX11.Device->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(),
         NULL, &g_pVertexShader);
+/*
+#include "vshader.h"
+    logu_("creating vertex shader from array of %d bytes\n", sizeof(g_siderVS));
+    hr = DX11.Device->CreateVertexShader(g_siderVS, sizeof(g_siderVS), NULL, &g_pVertexShader);
     if (FAILED(hr)) {
         logu_("DX11.Device->CreateVertexShader failed\n");
         return;
     }
+*/
 
     // Compile and create the pixel shader
     ID3D10Blob* pBlobPS = NULL;
@@ -1620,7 +1637,15 @@ void prep_stuff()
         return;
     }
     pBlobPS->Release();
-
+/*
+#include "pshader.h"
+    logu_("creating pixel shader from array of %d bytes\n", sizeof(g_siderPS));
+    hr = DX11.Device->CreatePixelShader(g_siderPS, sizeof(g_siderPS), NULL, &g_pPixelShader);
+    if (FAILED(hr)) {
+        logu_("DX11.Device->CreatePixelShader failed\n");
+        return;
+    }
+*/
 
     // Create the input layout
     D3D11_INPUT_ELEMENT_DESC elements[] =
@@ -1631,11 +1656,13 @@ void prep_stuff()
 
     hr = DX11.Device->CreateInputLayout(elements, numElements, pBlobVS->GetBufferPointer(),
         pBlobVS->GetBufferSize(), &g_pInputLayout);
+/*
+    hr = DX11.Device->CreateInputLayout(elements, numElements, g_siderVS, sizeof(g_siderVS), &g_pInputLayout);
+*/
     if (FAILED(hr)) {
         logu_("DX11.Device->CreateInputLayout failed\n");
         return;
     }
-
     pBlobVS->Release();
 
     D3D11_BLEND_DESC BlendState;
@@ -1650,15 +1677,6 @@ void prep_stuff()
     BlendState.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
     BlendState.RenderTarget[0].RenderTargetWriteMask = 0x0f;
     DX11.Device->CreateBlendState(&BlendState, &g_pBlendState);
-
-	hr = FW1CreateFactory(FW1_VERSION, &g_pFW1Factory);
-    if (FAILED(hr)) {
-        logu_("FW1CreateFactory failed\n");
-    }
-	hr = g_pFW1Factory->CreateFontWrapper(DX11.Device, _config->_overlay_font.c_str(), &g_pFontWrapper);
-    if (FAILED(hr)) {
-        logu_("CreateFontWrapper failed\n");
-    }
 
     // default to automatic font size
     _font_size = DX11.Height/40.0;
@@ -1900,6 +1918,7 @@ HRESULT sider_CreateSwapChain(IDXGIFactory1 *pFactory, IUnknown *pDevice, DXGI_S
 
             present = (PFN_IDXGISwapChain_Present)vtbl[8];
             logu_("now Present = %p\n", present);
+            VirtualProtect(vtbl+8, 8, protection, &newProtection);
         }
         else {
             logu_("ERROR: VirtualProtect failed for: %p\n", vtbl+8);
@@ -1934,6 +1953,7 @@ HRESULT sider_CreateDXGIFactory1(REFIID riid, void **ppFactory)
 
             sc = (PFN_IDXGIFactory1_CreateSwapChain)vtbl[10];
             logu_("now CreateSwapChain = %p\n", sc);
+            VirtualProtect(vtbl+10, 8, protection, &newProtection);
         }
         else {
             logu_("ERROR: VirtualProtect failed for: %p\n", vtbl+10);
@@ -2345,6 +2365,7 @@ BYTE* get_target_location(BYTE *call_location)
             // format of indirect call is like this:
             // call [addr] : FF 15 <4-byte-offset>
             DWORD* ptr = (DWORD*)(call_location + 2);
+            VirtualProtect(bptr, 8, protection, &newProtection);
             return call_location + 6 + ptr[0];
         }
     }
@@ -2363,6 +2384,7 @@ void hook_indirect_call(BYTE *loc, BYTE *p) {
         BYTE** v = (BYTE**)addr_loc;
         *v = p;
         log_(L"hook_indirect_call: hooked at %p (target: %p)\n", loc, p);
+        VirtualProtect(addr_loc, 8, protection, &newProtection);
     }
 }
 
@@ -2380,6 +2402,7 @@ void hook_call(BYTE *loc, BYTE *p, size_t nops) {
             memset(loc+12, '\x90', nops);  // nop ;one of more nops for padding
         }
         log_(L"hook_call: hooked at %p (target: %p)\n", loc, p);
+        VirtualProtect(loc, 12 + nops, protection, &newProtection);
     }
 }
 
@@ -2397,6 +2420,7 @@ void hook_call_rcx(BYTE *loc, BYTE *p, size_t nops) {
             memset(loc+12, '\x90', nops);  // nop ;one of more nops for padding
         }
         log_(L"hook_call_rcx: hooked at %p (target: %p)\n", loc, p);
+        VirtualProtect(loc, 12 + nops, protection, &newProtection);
     }
 }
 
@@ -2414,6 +2438,7 @@ void hook_call_rdx(BYTE *loc, BYTE *p, size_t nops) {
             memset(loc+12, '\x90', nops);  // nop ;one of more nops for padding
         }
         log_(L"hook_call_rdx: hooked at %p (target: %p)\n", loc, p);
+        VirtualProtect(loc, 12 + nops, protection, &newProtection);
     }
 }
 
@@ -2429,6 +2454,7 @@ void hook_call_with_tail(BYTE *loc, BYTE *p, BYTE *tail, size_t tail_size) {
         memcpy(loc+10, "\xff\xd0", 2);      // call rax
         memcpy(loc+12, tail, tail_size);  // tail code
         log_(L"hook_call_with_tail: hooked at %p (target: %p)\n", loc, p);
+        VirtualProtect(loc, 12 + tail_size, protection, &newProtection);
     }
 }
 
@@ -2445,6 +2471,7 @@ void hook_call_with_head_and_tail(BYTE *loc, BYTE *p, BYTE *head, size_t head_si
         memcpy(loc+head_size+10, "\xff\xd0", 2);     // call rax
         memcpy(loc+head_size+12, tail, tail_size);   // tail code
         log_(L"hook_call_with_head_and_tail: hooked at %p (target: %p)\n", loc, p);
+        VirtualProtect(loc, head_size + 12 + tail_size, protection, &newProtection);
     }
 }
 
@@ -2461,6 +2488,7 @@ void hook_call_rdx_with_head_and_tail(BYTE *loc, BYTE *p, BYTE *head, size_t hea
         memcpy(loc+head_size+10, "\xff\xd2", 2);     // call rdx
         memcpy(loc+head_size+12, tail, tail_size);   // tail code
         log_(L"hook_call_rdx_with_head_and_tail: hooked at %p (target: %p)\n", loc, p);
+        VirtualProtect(loc, head_size + 12 + tail_size, protection, &newProtection);
     }
 }
 

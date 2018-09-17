@@ -57,7 +57,13 @@ $(FW1LIBPATH)\$(FW1LIB):
 util.obj: util.asm
     ml64 /c util.asm
 
-sider.obj: sider.cpp sider.h patterns.h common.h imageutil.h
+vshader.h: vshader.hlsl
+    fxc /E siderVS /Ges /T vs_4_0 /Fh vshader.h vshader.hlsl
+
+pshader.h: pshader.hlsl
+    fxc /E siderPS /Ges /T ps_4_0 /Fh pshader.h pshader.hlsl
+
+sider.obj: sider.cpp sider.h patterns.h common.h imageutil.h vshader.h pshader.h
 sider.dll: sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj sider.res $(LUALIBPATH)\$(LUALIB) $(FW1LIBPATH)\$(FW1LIB)
 	$(LINK) $(LFLAGS) /out:sider.dll /DLL sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj sider.res /LIBPATH:$(LUALIBPATH) /LIBPATH:$(FW1LIBPATH) $(LIBS) $(LUALIB) $(FW1LIB) /LIBPATH:"$(LIB)"
 
@@ -72,7 +78,7 @@ $(LUADLL): $(LUALIBPATH)\$(LUALIB)
 	$(CC) $(CFLAGS) -c $(INC) $(LUAINC) $(FW1INC) $<
 
 clean:
-	del *.obj *.dll *.exp *.res *.lib *.exe *~ memlib_lua.h
+	del *.obj *.dll *.exp *.res *.lib *.exe *~ memlib_lua.h vshader.h pshader.h
 
 clean-all: clean
     cd $(LUALIBPATH) && del /Q lua51.exp lua51.lib lua51.dll luajit.exe

@@ -12,3 +12,5 @@ memlib_lua.h
 *~
 Debug/
 Release/
+vshader.h
+pshader.h

@@ -9,7 +9,7 @@ Requires: sider.dll 5.1.0
 --]]
 
 local m = {}
-m.version = "1.4"
+m.version = "1.5"
 local hex = memory.hex
 local settings
 
@@ -32,6 +32,14 @@ local overlay_states = {
             return (v == "on") and "off" or "on"
         end,
     },
+    { ui = "ball cursor: %s", prop = "ball_cursor", def = "on",
+        nextf = function(v)
+            return (v == "on") and "off" or "on"
+        end,
+        prevf = function(v)
+            return (v == "on") and "off" or "on"
+        end,
+    },
 }
 local ui_lines = {}
 
@@ -44,6 +52,8 @@ local game_info = {
     camera_range_height = { "camera", 0x08, "f", 4},   --> default: 0.3
     camera_range_angle  = { "camera", 0x20, "f", 4},   --> default: 1.35
     replays = { "replays", 0x04, "", 1, {on='\x04', off='\x06'}},
+    ball_cursor = { "ball", 0x00, "", 7,
+        {on='\x0f\x29\x8d\xc0\xff\xff\xff', off='\x90\x90\x90\x90\x90\x90\x90'}},
 }
 
 local function load_ini(ctx, filename)
@@ -69,7 +79,9 @@ local function save_ini(ctx, filename)
     f:write(string.format("camera_range_zoom = %0.2f\n", settings.camera_range_zoom))
     f:write(string.format("camera_range_height = %0.2f\n", settings.camera_range_height))
     f:write(string.format("camera_range_angle = %0.2f\n", settings.camera_range_angle))
-    f:write(string.format("replays = %s\n\n", settings.replays))
+    f:write(string.format("replays = %s\n", settings.replays))
+    f:write(string.format("ball_cursor = %s\n", settings.ball_cursor))
+    f:write("\n")
     f:close()
 end
 
@@ -180,6 +192,22 @@ function m.init(ctx)
         log(string.format("Replays op-code address: %s", hex(bases.replays)))
     else
         log("problem: unable to find code pattern for replays switch")
+    end
+
+    -- find ball cursor place
+    --[[
+00000001515ED611 | 89 B5 BC FF FF FF                    | mov dword ptr ss:[rbp-44],esi          |
+00000001515ED617 | 0F 28 B5 B0 FF FF FF                 | movaps xmm6,xmmword ptr ss:[rbp-50]    |
+00000001515ED61E | 0F 29 8D C0 FF FF FF                 | movaps xmmword ptr ss:[rbp-40],xmm1    | store ball cursor coordinates
+    --]]
+    local pattern = "\x89\xb5\xbc\xff\xff\xff\x0f\x28\xb5\xb0\xff\xff\xff"
+    local loc = memory.search_process(pattern)
+    if loc then
+        loc = loc + #pattern
+        bases.ball = loc
+        log(string.format("Ball cursor op-code address: %s", hex(bases.ball)))
+    else
+        log("problem: unable to find code pattern for ball cursor read")
     end
 
     -- register for events

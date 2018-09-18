@@ -98,27 +98,22 @@ end
 function m.read(addr, len)
     local p = ffi.cast('char*', addr)
     local oldprot = ffi.new('uint32_t[1]',{});
-    local newprot = ffi.new('uint32_t[1]',{});
     if not C.VirtualProtect(p, len, PAGE_EXECUTE_READWRITE, oldprot) then
         return error(string.format('VirtualProtect failed for %s - %s memory range',
             m.hex(addr), m.hex(addr+len)))
     end
-    local s = ffi.string(p, len)
-    C.VirtualProtect(p, len, oldprot[1], newprot)
-    return s
+    return ffi.string(p, len)
 end
 
 function m.write(addr, s)
     local p = ffi.cast('char*', addr)
     local oldprot = ffi.new('uint32_t[1]',{});
-    local newprot = ffi.new('uint32_t[1]',{});
     local len = #s
     if not C.VirtualProtect(p, len, PAGE_EXECUTE_READWRITE, oldprot) then
         return error(string.format('VirtualProtect failed for %s - %s memory range',
             m.hex(addr), m.hex(addr+len)))
     end
     ffi.copy(p, s, len)
-    C.VirtualProtect(p, len, oldprot[1], newprot)
 end
 
 local format_sizes = {

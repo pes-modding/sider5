@@ -356,6 +356,17 @@ static void string_strip_quotes(wstring& s)
     s.erase(0,b);
 }
 
+class lock_t {
+public:
+    CRITICAL_SECTION *_cs;
+    lock_t(CRITICAL_SECTION *cs) : _cs(cs) {
+        EnterCriticalSection(_cs);
+    }
+    ~lock_t() {
+        LeaveCriticalSection(_cs);
+    }
+};
+
 class config_t {
 public:
     int _debug;
@@ -364,6 +375,7 @@ public:
     bool _lua_enabled;
     bool _luajit_extensions_enabled;
     list<wstring> _lua_extra_globals;
+    int _lua_gc_opt;
     int _dll_mapping_option;
     int _key_cache_ttl_sec;
     int _rewrite_cache_ttl_sec;
@@ -375,6 +387,7 @@ public:
     bool _start_minimized;
     bool _free_side_select;
     bool _overlay_enabled;
+    bool _overlay_on_from_start;
     wstring _overlay_font;
     DWORD _overlay_text_color;
     DWORD _overlay_background_color;
@@ -416,10 +429,12 @@ public:
                  _lookup_cache_enabled(true),
                  _lua_enabled(true),
                  _luajit_extensions_enabled(false),
+                 _lua_gc_opt(LUA_GCSTEP),
                  _close_sider_on_exit(false),
                  _start_minimized(false),
                  _free_side_select(false),
                  _overlay_enabled(false),
+                 _overlay_on_from_start(false),
                  _overlay_font(DEFAULT_OVERLAY_FONT),
                  _overlay_text_color(DEFAULT_OVERLAY_TEXT_COLOR),
                  _overlay_background_color(DEFAULT_OVERLAY_BACKGROUND_COLOR),
@@ -544,6 +559,12 @@ public:
                     start = end + 1;
                 }
             }
+            else if (wcscmp(L"lua.gc.opt", key.c_str())==0) {
+                _lua_gc_opt = LUA_GCSTEP;
+                if (value == L"collect") {
+                    _lua_gc_opt = LUA_GCCOLLECT;
+                }
+            }
             else if (wcscmp(L"cpk.root", key.c_str())==0) {
                 if (value[value.size()-1] != L'\\') {
                     value += L'\\';
@@ -578,6 +599,10 @@ public:
 
         _overlay_enabled = GetPrivateProfileInt(_section_name.c_str(),
             L"overlay.enabled", _overlay_enabled,
+            config_ini);
+
+        _overlay_on_from_start = GetPrivateProfileInt(_section_name.c_str(),
+            L"overlay.on-from-start", _overlay_on_from_start,
             config_ini);
 
         _overlay_font_size = GetPrivateProfileInt(_section_name.c_str(),
@@ -666,15 +691,13 @@ class cache_t {
     int debug;
 public:
     cache_t(CRITICAL_SECTION *cs, int ttl_sec) :
-        _ttl_msec(ttl_sec * 1000), _kcs(cs) {
-        InitializeCriticalSection(_kcs);
+        _kcs(cs), _ttl_msec(ttl_sec * 1000) {
     }
     ~cache_t() {
         log_(L"cache: size:%d\n", _map.size());
-        DeleteCriticalSection(_kcs);
     }
     bool lookup(char *filename, void **res) {
-        EnterCriticalSection(_kcs);
+        lock_t lock(_kcs);
         cache_map_t::iterator i = _map.find(filename);
         if (i != _map.end()) {
             uint64_t ltime = GetTickCount64();
@@ -683,7 +706,6 @@ public:
                 // hit
                 *res = i->second.value;
                 //logu_("lookup FOUND: (%08x) %s\n", i->first, filename);
-                LeaveCriticalSection(_kcs);
                 return true;
             }
             else {
@@ -696,7 +718,6 @@ public:
             // miss
         }
         *res = NULL;
-        LeaveCriticalSection(_kcs);
         return false;
     }
     void put(char *filename, void *value) {
@@ -705,16 +726,17 @@ public:
         v.value = value;
         v.expires = ltime + _ttl_msec;
         DBG(32) logu_("cache::put: %s --> (%p|%llu)\n", (filename)?filename:"(NULL)", v.value, v.expires);
-        EnterCriticalSection(_kcs);
-        pair<cache_map_t::iterator,bool> res = _map.insert(
-            pair<string,cache_map_value_t>(filename, v));
-        if (!res.second) {
-            // replace existing
-            //logu_("REPLACED for: %s\n", filename);
-            res.first->second.value = v.value;
-            res.first->second.expires = v.expires;
+        {
+            lock_t lock(_kcs);
+            pair<cache_map_t::iterator,bool> res = _map.insert(
+                pair<string,cache_map_value_t>(filename, v));
+            if (!res.second) {
+                // replace existing
+                //logu_("REPLACED for: %s\n", filename);
+                res.first->second.value = v.value;
+                res.first->second.expires = v.expires;
+            }
         }
-        LeaveCriticalSection(_kcs);
     }
 };
 
@@ -921,18 +943,19 @@ static bool is_pes(wchar_t* name, wstring** match)
 
 wstring* _have_live_file(char *file_name)
 {
-    wchar_t unicode_filename[512];
-    memset(unicode_filename, 0, sizeof(unicode_filename));
-    Utf8::fUtf8ToUnicode(unicode_filename, file_name);
+    wchar_t *unicode_filename = Utf8::utf8ToUnicode((const BYTE*)file_name);
+    //wchar_t unicode_filename[512];
+    //memset(unicode_filename, 0, sizeof(unicode_filename));
+    //Utf8::fUtf8ToUnicode(unicode_filename, file_name);
 
     wchar_t fn[512];
     for (list<wstring>::iterator it = _config->_cpk_roots.begin();
             it != _config->_cpk_roots.end();
             it++) {
-        memset(fn, 0, sizeof(fn));
-        wcscpy(fn, it->c_str());
+        fn[0] = L'\0';
+        wcsncat(fn, it->c_str(), 512);
         wchar_t *p = (unicode_filename[0] == L'\\') ? unicode_filename + 1 : unicode_filename;
-        wcscat(fn, p);
+        wcsncat(fn, p, 512);
 
         HANDLE handle;
         handle = CreateFileW(fn,           // file to open
@@ -946,10 +969,12 @@ wstring* _have_live_file(char *file_name)
         if (handle != INVALID_HANDLE_VALUE)
         {
             CloseHandle(handle);
+            Utf8::free(unicode_filename);
             return new wstring(fn);
         }
     }
 
+    Utf8::free(unicode_filename);
     return NULL;
 }
 
@@ -961,14 +986,17 @@ wstring* have_live_file(char *file_name)
         return _have_live_file(file_name);
     }
     unordered_map<string,wstring*>::iterator it;
+    EnterCriticalSection(&_cs);
     it = _lookup_cache.find(string(file_name));
     if (it != _lookup_cache.end()) {
+        LeaveCriticalSection(&_cs);
         return it->second;
     }
     else {
         //logu_("_lookup_cache MISS for (%s)\n", file_name);
         wstring* res = _have_live_file(file_name);
         _lookup_cache.insert(pair<string,wstring*>(string(file_name),res));
+        LeaveCriticalSection(&_cs);
         return res;
     }
 }
@@ -1240,6 +1268,7 @@ void module_after_set_conditions(module_t *m)
         if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
             const char *err = luaL_checkstring(L, -1);
             logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+            lua_pop(L, 1);
         }
         LeaveCriticalSection(&_cs);
     }
@@ -1295,19 +1324,29 @@ char *module_overlay_on(module_t *m)
     char *res = NULL;
     if (m->evt_overlay_on != 0) {
         EnterCriticalSection(&_cs);
+        // garbage collection
+        lua_gc(L, _config->_lua_gc_opt, 0);
         lua_pushvalue(m->L, m->evt_overlay_on);
         lua_xmove(m->L, L, 1);
         // push params
         lua_pushvalue(L, 1); // ctx
         if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
             const char *err = luaL_checkstring(L, -1);
-            logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+            logu_("[%d] lua ZZzz ERROR: %s\n", GetCurrentThreadId(), err);
         }
         else if (lua_isstring(L, -1)) {
             const char *s = luaL_checkstring(L, -1);
-            memset(_overlay_utf8_text, 0, sizeof(_overlay_utf8_text));
-            strncpy(_overlay_utf8_text, s, sizeof(_overlay_utf8_text)-1);
+            _overlay_utf8_text[0] = '\0';
+            strncat(_overlay_utf8_text, s, sizeof(_overlay_utf8_text)-1);
             res = _overlay_utf8_text;
+            // strip any trailing whitespace
+            if (s[0] != '\0') {
+                char *p = res + strlen(res) - 1;
+                while ((p >= res) && ((p[0] == '\r') || (p[0] == '\n') || (p[0] == ' '))) {
+                    p[0] = '\0';
+                    p--;
+                }
+            }
         }
         lua_pop(L, 1);
         LeaveCriticalSection(&_cs);
@@ -1362,7 +1401,9 @@ void module_make_key(module_t *m, const char *file_name, char *key, size_t key_m
     key[0] = '\0';
     size_t maxlen = key_maxsize-1;
     if (m->evt_lcpk_make_key != 0) {
-        EnterCriticalSection(&_cs);
+        lock_t lock(&_cs);
+        // garbage collection
+        lua_gc(L, _config->_lua_gc_opt, 0);
         lua_pushvalue(m->L, m->evt_lcpk_make_key);
         lua_xmove(m->L, L, 1);
         // push params
@@ -1383,7 +1424,6 @@ void module_make_key(module_t *m, const char *file_name, char *key, size_t key_m
             strncat(key, file_name, maxlen);
         }
         lua_pop(L, 1);
-        LeaveCriticalSection(&_cs);
     }
     else {
         // default to filename
@@ -1395,7 +1435,7 @@ wstring *module_get_filepath(module_t *m, const char *file_name, char *key)
 {
     wstring *res = NULL;
     if (m->evt_lcpk_get_filepath != 0) {
-        EnterCriticalSection(&_cs);
+        lock_t lock(&_cs);
         lua_pushvalue(m->L, m->evt_lcpk_get_filepath);
         lua_xmove(m->L, L, 1);
         // push params
@@ -1414,7 +1454,6 @@ wstring *module_get_filepath(module_t *m, const char *file_name, char *key)
             Utf8::free(ws);
         }
         lua_pop(L, 1);
-        LeaveCriticalSection(&_cs);
 
         // verify that file exists
         if (res && !file_exists(res, NULL)) {
@@ -1461,6 +1500,7 @@ wstring* have_content(char *file_name)
 {
     char key[512];
     wstring *res = NULL;
+
     if (_config->_key_cache_ttl_sec) {
         if (_key_cache->lookup(file_name, (void**)&res)) {
             // key-cache: for performance
@@ -1539,7 +1579,7 @@ void sider_get_size(char *filename, struct FILE_INFO *fi)
     }
     DBG(4) logu_("get_size:: tailname: %s\n", fname);
 
-    wstring *fn;
+    wstring *fn(NULL);
     if (_config->_lua_enabled && _rewrite_count > 0) do_rewrite(fname);
     fn = (_config->_lua_enabled) ? have_content(fname) : NULL;
     fn = (fn) ? fn : have_live_file(fname);
@@ -1704,7 +1744,7 @@ void prep_text(float font_size)
     //logu_("rect: %0.2f,%0.2f,%0.2f,%0.2f\n", rect.Left,rect.Top,rect.Right,rect.Bottom);
     float height = rect.Bottom;
     if (height < 0) { height = DX11.Height + height; }
-    float rel_height = (height + rect.Top) / DX11.Height;
+    float rel_height = (height + rect.Top) / DX11.Height + 0.005;
     //logu_("rel_height: %0.2f\n", rel_height);
 
     SimpleVertex *vertices = g_vertices;
@@ -1847,7 +1887,7 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
                 }
                 else {
                     // empty
-                    _current_overlay_text[0] = '\0';
+                    _current_overlay_text[0] = L'\0';
                 }
 
                 // render overlay
@@ -1918,7 +1958,6 @@ HRESULT sider_CreateSwapChain(IDXGIFactory1 *pFactory, IUnknown *pDevice, DXGI_S
 
             present = (PFN_IDXGISwapChain_Present)vtbl[8];
             logu_("now Present = %p\n", present);
-            VirtualProtect(vtbl+8, 8, protection, &newProtection);
         }
         else {
             logu_("ERROR: VirtualProtect failed for: %p\n", vtbl+8);
@@ -1953,7 +1992,6 @@ HRESULT sider_CreateDXGIFactory1(REFIID riid, void **ppFactory)
 
             sc = (PFN_IDXGIFactory1_CreateSwapChain)vtbl[10];
             logu_("now CreateSwapChain = %p\n", sc);
-            VirtualProtect(vtbl+10, 8, protection, &newProtection);
         }
         else {
             logu_("ERROR: VirtualProtect failed for: %p\n", vtbl+10);
@@ -2075,7 +2113,7 @@ void sider_mem_copy(BYTE *dst, LONGLONG dst_len, BYTE *src, LONGLONG src_len, st
         BYTE* p = (BYTE*)rs;
         FILE_LOAD_INFO *fli = *((FILE_LOAD_INFO **)(p - 0x18));
 
-        wstring *fn;
+        wstring *fn(NULL);
         fn = (_config->_lua_enabled) ? have_content(rs->filename) : NULL;
         fn = (fn) ? fn : have_live_file(rs->filename);
         if (fn != NULL) {
@@ -2141,7 +2179,7 @@ void sider_lookup_file(LONGLONG p1, LONGLONG p2, char *filename)
     }
     //DBG(8) logu_("lookup_file:: looking for: %s\n", filename);
 
-    wstring *fn;
+    wstring *fn(NULL);
     if (_config->_lua_enabled && _rewrite_count > 0) {
         if (do_rewrite(filename)) {
             len = strlen(filename);
@@ -2384,7 +2422,6 @@ void hook_indirect_call(BYTE *loc, BYTE *p) {
         BYTE** v = (BYTE**)addr_loc;
         *v = p;
         log_(L"hook_indirect_call: hooked at %p (target: %p)\n", loc, p);
-        VirtualProtect(addr_loc, 8, protection, &newProtection);
     }
 }
 
@@ -2402,7 +2439,6 @@ void hook_call(BYTE *loc, BYTE *p, size_t nops) {
             memset(loc+12, '\x90', nops);  // nop ;one of more nops for padding
         }
         log_(L"hook_call: hooked at %p (target: %p)\n", loc, p);
-        VirtualProtect(loc, 12 + nops, protection, &newProtection);
     }
 }
 
@@ -2420,7 +2456,6 @@ void hook_call_rcx(BYTE *loc, BYTE *p, size_t nops) {
             memset(loc+12, '\x90', nops);  // nop ;one of more nops for padding
         }
         log_(L"hook_call_rcx: hooked at %p (target: %p)\n", loc, p);
-        VirtualProtect(loc, 12 + nops, protection, &newProtection);
     }
 }
 
@@ -2438,7 +2473,6 @@ void hook_call_rdx(BYTE *loc, BYTE *p, size_t nops) {
             memset(loc+12, '\x90', nops);  // nop ;one of more nops for padding
         }
         log_(L"hook_call_rdx: hooked at %p (target: %p)\n", loc, p);
-        VirtualProtect(loc, 12 + nops, protection, &newProtection);
     }
 }
 
@@ -2454,7 +2488,6 @@ void hook_call_with_tail(BYTE *loc, BYTE *p, BYTE *tail, size_t tail_size) {
         memcpy(loc+10, "\xff\xd0", 2);      // call rax
         memcpy(loc+12, tail, tail_size);  // tail code
         log_(L"hook_call_with_tail: hooked at %p (target: %p)\n", loc, p);
-        VirtualProtect(loc, 12 + tail_size, protection, &newProtection);
     }
 }
 
@@ -2471,7 +2504,6 @@ void hook_call_with_head_and_tail(BYTE *loc, BYTE *p, BYTE *head, size_t head_si
         memcpy(loc+head_size+10, "\xff\xd0", 2);     // call rax
         memcpy(loc+head_size+12, tail, tail_size);   // tail code
         log_(L"hook_call_with_head_and_tail: hooked at %p (target: %p)\n", loc, p);
-        VirtualProtect(loc, head_size + 12 + tail_size, protection, &newProtection);
     }
 }
 
@@ -2488,7 +2520,6 @@ void hook_call_rdx_with_head_and_tail(BYTE *loc, BYTE *p, BYTE *head, size_t hea
         memcpy(loc+head_size+10, "\xff\xd2", 2);     // call rdx
         memcpy(loc+head_size+12, tail, tail_size);   // tail code
         log_(L"hook_call_rdx_with_head_and_tail: hooked at %p (target: %p)\n", loc, p);
-        VirtualProtect(loc, head_size + 12 + tail_size, protection, &newProtection);
     }
 }
 
@@ -2668,6 +2699,7 @@ static void push_env_table(lua_State *L, const wchar_t *script_name)
         "assert", "table", "pairs", "ipairs",
         "string", "math", "tonumber", "tostring",
         "unpack", "error", "_VERSION", "type", "io",
+        "collectgarbage",
     };
 
     lua_newtable(L);
@@ -2930,6 +2962,7 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"livecpk.enabled = %d\n", _config->_livecpk_enabled);
     log_(L"lookup-cache.enabled = %d\n", _config->_lookup_cache_enabled);
     log_(L"lua.enabled = %d\n", _config->_lua_enabled);
+    log_(L"lua.gc.opt = %s\n", (_config->_lua_gc_opt == LUA_GCSTEP)? "step" : "collect");
     log_(L"luajit.ext.enabled = %d\n", _config->_luajit_extensions_enabled);
     //log_(L"address-cache.enabled = %d\n", (int)(!_config->_ac_off));
     log_(L"key-cache.ttl-sec = %d\n", _config->_key_cache_ttl_sec);
@@ -3242,8 +3275,12 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
                 log_(L"Sider DLL: version %s\n", version.c_str());
                 log_(L"Filename match: %s\n", match->c_str());
 
+                _overlay_on = _config->_overlay_on_from_start;
                 _overlay_header = L"sider ";
                 _overlay_header += version;
+                memset(_overlay_text, 0, sizeof(_overlay_text));
+                memset(_current_overlay_text, 0, sizeof(_current_overlay_text));
+                memset(_overlay_utf8_text, 0, sizeof(_overlay_utf8_text));
 
                 install_func(NULL);
 
@@ -3269,8 +3306,6 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
                 log_(L"Unmapping from PES.\n");
 
                 if (L) { lua_close(L); }
-                DeleteCriticalSection(&_cs);
-                DeleteCriticalSection(&_tcs);
 
                 // tell sider.exe to close
                 if (_config->_close_sider_on_exit) {
@@ -3281,6 +3316,8 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
                     }
                 }
                 close_log_();
+                DeleteCriticalSection(&_cs);
+                DeleteCriticalSection(&_tcs);
             }
             break;
 
@@ -3304,7 +3341,7 @@ LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam)
     }
 
     if (code == HC_ACTION) {
-        if (wParam == _config->_overlay_vkey_toggle && ((lParam & 0x80000000) == 0)) {
+        if (wParam == _config->_overlay_vkey_toggle && ((lParam & 0x80000000) != 0)) {
             _overlay_on = !_overlay_on;
             DBG(64) logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
         }

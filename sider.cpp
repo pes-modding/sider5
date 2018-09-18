@@ -2962,7 +2962,7 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"livecpk.enabled = %d\n", _config->_livecpk_enabled);
     log_(L"lookup-cache.enabled = %d\n", _config->_lookup_cache_enabled);
     log_(L"lua.enabled = %d\n", _config->_lua_enabled);
-    log_(L"lua.gc.opt = %s\n", (_config->_lua_gc_opt == LUA_GCSTEP)? "step" : "collect");
+    log_(L"lua.gc.opt = %s\n", (_config->_lua_gc_opt == LUA_GCSTEP)? L"step" : L"collect");
     log_(L"luajit.ext.enabled = %d\n", _config->_luajit_extensions_enabled);
     //log_(L"address-cache.enabled = %d\n", (int)(!_config->_ac_off));
     log_(L"key-cache.ttl-sec = %d\n", _config->_key_cache_ttl_sec);

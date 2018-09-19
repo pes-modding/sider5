@@ -101,14 +101,18 @@ local function apply_settings(ctx, log_it, save_it)
                     old_value = memory.unpack(format, memory.read(addr, len))
                     memory.write(addr, memory.pack(format, value))
                     new_value = memory.unpack(format, memory.read(addr, len))
+                    if log_it then
+                        log(string.format("%s: changed at %s: %s --> %s",
+                            name, hex(addr), old_value, new_value))
+                    end
                 else
                     old_value = memory.read(addr, len)
                     memory.write(addr, value)
                     new_value = memory.read(addr, len)
-                end
-                if log_it then
-                    log(string.format("%s: changed at %s: %s --> %s",
-                        name, hex(addr), old_value, new_value))
+                    if log_it then
+                        log(string.format("%s: changed at %s: %s --> %s",
+                            name, hex(addr), hex(old_value), hex(new_value)))
+                    end
                 end
             end
         end

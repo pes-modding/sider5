@@ -49,7 +49,8 @@ function m.get_ball_name(ctx, ball_name)
 end
 
 function m.overlay_on(ctx)
-    return(string.format("ctx: %s", t2s(ctx)))
+    local memory_used = collectgarbage("count")
+    return(string.format("ctx: %s\nLua memory used (KB): %d", t2s(ctx), memory_used))
 end
 
 function m.init(ctx)

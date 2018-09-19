@@ -1,7 +1,7 @@
 Sider 5 for Pro Evolution Soccer 2019
 =====================================
 Copyright (C) 2018 juce
-Version 5.0.4
+Version 5.1.0
 
 
 
@@ -129,6 +129,64 @@ lua.module = "kitrewrite.lua"
 
 - Specifies the order in which the extension modules are loaded. These
 modules must be in "modules" folder inside the sider root directory.
+
+
+lua.gc.opt = "step"
+
+- This option allows to tweak Lua garbage collector (GC) behaviour.
+Two supported values are: "step" - for incremental collection, and
+"collect" - for full collection. Default is "step", and typically,
+you do not need to modify this, unless you see Lua memory errors
+in the log. In which case, try "collect".
+
+
+overlay.enabled = 1
+
+- This option enables an interactive overlay. The overlay can display
+text that is provided by Lua modules, with one module having control
+of the overlay at any given time. By pressing a hotkey (set by
+overlay.vkey.next-module option) the control of the overlay can be switched
+to the next module, and so on. The overlay is toggled on/off with another
+hotkey, set by overlay.vkey.toggle option. When the overlay is on, the
+key presses are passed on to the module that is currently in control of
+the overlay. The module can handle those key events in whatever way
+it needs to, or ignore them altogether. For more information, see
+scripting.txt
+
+
+overlay.on-from-start = 1
+
+- If set to 1, the overlay will appear as soon as possible, after
+the start of the game.
+(default is 0, meaning that overlay starts hidden, until toggled on)
+
+
+overlay.location = "bottom"
+
+- two possible locations: "top" and "bottom" of the screen
+
+
+overlay.font-size = 0
+overlay.font = "Lucida Console"
+
+- these two options control the font of overlay. Size 0 means that
+the font-size will be calculated automatically, based on height of
+the screen in pixels. Any TTF font installed on the system can be
+used, but monospaced fonts are recommended for easier formatting.
+
+
+overlay.vkey.toggle = 0x20
+overlay.vkey.next-module = 0x31
+
+- hot keys for toggling overlay on/off, and for switching control
+of the overlay among the modules.
+
+
+overlay.background-color = "102010c0"
+overlay.text-color = "80ff80c0"
+
+- colors are specified in RRGGBBAA format (similar to how it is
+done in HTML, except that you do not put '#' character in front)
 
 
 

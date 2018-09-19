@@ -1,7 +1,7 @@
 Sider 5 Lua Module Programmers Guide
 ====================================
-For sider.dll version: 5.0.4
-September 9, 2018
+For sider.dll version: 5.1.0
+September 18, 2018
 
 
 
@@ -9,9 +9,9 @@ September 9, 2018
 ~~~~~~~~~~~~~~~
 
 The main idea here is to provide a safe and flexible way to
-extend Sider functionality. It allow modders to alter many
-aspects of game logic, and load all sorts of extra content
-and in future versions, gameplay tweaks will be possible too.
+extend Sider functionality. It allows modders to alter many
+aspects of game logic, and load all sorts of extra content.
+Visual and gameplay tweaks are possible too.
 
 Instead of offering a C interface, where the programmers would need
 to write a DLL, i'm a taking a different approach here and trying to
@@ -349,6 +349,32 @@ uses to enforce trophy scenes from specific tournaments. This makes it
 possible to have trophy celebrations for tournaments that do not have
 them in the original game content. (See trophy.lua, if you are really
 interested in how this works)
+
+
+-- Event name: "overlay_on"
+Handler function: f(ctx)
+Return value expected: nil or string
+
+When the overlay is on, and the current Lua module is in control of the
+overlay, this event fires once for each frame that is displayed by the game engine
+(So, normally - 60 times per second). The returned string is what will be
+displayed by the overlay. The logic that generates this string should not be
+too heavy: too much processing may affect the frame rate.
+See examples in modules: overdemo.lua and camera.lua
+
+
+-- Event name: "key_down"
+Handler function: f(ctx, vkey)
+Return value expected: nil
+
+When the overlay is on, and the current Lua module is in control of the
+overlay, this evnt fires when user presses down any key on the keyboard. The
+so-called "virtual key code" will be passed as the value of "vkey" parameter.
+Your function can that take appropriate action, if it wants to react to
+such key events. A combination of "overlay_on" and "key_down" events can
+be used to build simple UIs in the overlay itself.
+See example of such UI in camera.lua
+
 
 
 IMPORTANT NOTE: Some events can fire multiple times for the same "action".

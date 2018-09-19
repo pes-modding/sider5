@@ -2,6 +2,14 @@ Sider 5 Release History
 =======================
 
 
+September 18, 2018
+v5.1.0
+- fixed crashes that were due to Lua memory allocation errors
+- overlay : fully programmable via Lua modules using 2 new events
+- camera.lua : updated with overlay controls and two new tweaks
+    by nesa24 - ball cursor switch on/off, replays on/off.
+
+
 September 9, 2018
 v5.0.4
 - fixed logic error in hooking for set_team_id event.

@@ -179,7 +179,12 @@ overlay.vkey.toggle = 0x20
 overlay.vkey.next-module = 0x31
 
 - hot keys for toggling overlay on/off, and for switching control
-of the overlay among the modules.
+of the overlay among the modules. Values must be specified in
+hexadecimal format. The default ones are:
+    0x20 [Space] - for toggle
+    0x31 [1]     - for next-module
+Full list of codes for all keys can be found here:
+https://docs.microsoft.com/en-us/windows/desktop/inputdev/virtual-key-codes
 
 
 overlay.background-color = "102010c0"

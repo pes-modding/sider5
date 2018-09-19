@@ -202,3 +202,8 @@ Programming: juce
 Alpha testing: zlac, nesa24, Chuny, Hawke, sonofsam69
 Blue Champions League ball: Hawke and digitalfoxx
 
+Sider uses the following 3rd-party software:
+1) LuaJIT by Mike Pall (doc/license-luajit.txt)
+2) Knuth-Morris-Pratt string matcher from Project Nayuki (doc/license-kmp.txt)
+3) FW1FontWrapper library by Erik Rufelt
+

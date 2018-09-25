@@ -167,6 +167,8 @@ void set_context_field_boolean(const char *name, bool value);
 void set_context_field_int(const char *name, int value);
 void set_context_field_nil(const char *name);
 void clear_context();
+void lua_reload_modified_modules();
+static void push_env_table(lua_State *L, const wchar_t *script_name);
 
 const char *_context_fields[] = {
     "match_id", "match_info", "match_leg", "match_time",
@@ -324,6 +326,8 @@ static HHOOK handle = 0;
 static HHOOK kb_handle = 0;
 
 bool _overlay_on(false);
+bool _reload_1_down(false);
+bool _reload_modified(false);
 bool _is_game(false);
 bool _is_sider(false);
 bool _is_edit_mode(false);
@@ -341,6 +345,8 @@ char _overlay_utf8_text[1024];
 #define DEFAULT_OVERLAY_LOCATION 0
 #define DEFAULT_OVERLAY_VKEY_TOGGLE 0x20
 #define DEFAULT_OVERLAY_VKEY_NEXT_MODULE 0x31
+#define DEFAULT_VKEY_RELOAD_1 0x10 //Shift
+#define DEFAULT_VKEY_RELOAD_2 0x52 //R
 
 wchar_t module_filename[MAX_PATH];
 wchar_t dll_log[MAX_PATH];
@@ -395,6 +401,8 @@ public:
     int _overlay_font_size;
     int _overlay_vkey_toggle;
     int _overlay_vkey_next_module;
+    int _vkey_reload_1;
+    int _vkey_reload_2;
     int _num_minutes;
     BYTE *_hp_at_read_file;
     BYTE *_hp_at_get_size;
@@ -442,6 +450,8 @@ public:
                  _overlay_location(DEFAULT_OVERLAY_LOCATION),
                  _overlay_vkey_toggle(DEFAULT_OVERLAY_VKEY_TOGGLE),
                  _overlay_vkey_next_module(DEFAULT_OVERLAY_VKEY_NEXT_MODULE),
+                 _vkey_reload_1(DEFAULT_VKEY_RELOAD_1),
+                 _vkey_reload_2(DEFAULT_VKEY_RELOAD_2),
                  _key_cache_ttl_sec(10),
                  _rewrite_cache_ttl_sec(10),
                  _hp_at_read_file(NULL),
@@ -540,6 +550,18 @@ public:
                 int v;
                 if (swscanf(value.c_str(), L"%x", &v)==1) {
                     _overlay_vkey_next_module = v;
+                }
+            }
+            else if (wcscmp(L"vkey.reload-1", key.c_str())==0) {
+                int v;
+                if (swscanf(value.c_str(), L"%x", &v)==1) {
+                    _vkey_reload_1 = v;
+                }
+            }
+            else if (wcscmp(L"vkey.reload-2", key.c_str())==0) {
+                int v;
+                if (swscanf(value.c_str(), L"%x", &v)==1) {
+                    _vkey_reload_2 = v;
                 }
             }
             else if (wcscmp(L"lua.extra-globals", key.c_str())==0) {
@@ -751,6 +773,8 @@ struct module_t {
     lookup_cache_t *cache;
     lua_State* L;
     wstring *filename;
+    FILETIME last_modified;
+    int stack_position;
     int evt_trophy_check;
     int evt_lcpk_make_key;
     int evt_lcpk_get_filepath;
@@ -1332,7 +1356,7 @@ char *module_overlay_on(module_t *m)
         lua_pushvalue(L, 1); // ctx
         if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
             const char *err = luaL_checkstring(L, -1);
-            logu_("[%d] lua ZZzz ERROR: %s\n", GetCurrentThreadId(), err);
+            logu_("[%d] lua ERROR in overlay_on: %s\n", GetCurrentThreadId(), err);
         }
         else if (lua_isstring(L, -1)) {
             const char *s = luaL_checkstring(L, -1);
@@ -1870,6 +1894,11 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
         if (kb_handle == NULL) {
             kb_handle = SetWindowsHookEx(WH_KEYBOARD, sider_keyboard_proc, myHDLL, GetCurrentThreadId());
         }
+    }
+
+    if (_reload_modified) {
+        lua_reload_modified_modules();
+        _reload_modified = false;
     }
 
     if (_overlay_on) {
@@ -2833,6 +2862,10 @@ void init_lua_support()
                 continue;
             }
 
+            FILETIME last_mod_time;
+            memset(&last_mod_time, 0, sizeof(FILETIME));
+            GetFileTime(handle, NULL, NULL, &last_mod_time);
+
             size = GetFileSize(handle, NULL);
             BYTE *buf = new BYTE[size+1];
             memset(buf, 0, size+1);
@@ -2895,6 +2928,7 @@ void init_lua_support()
             module_t *m = new module_t();
             memset(m, 0, sizeof(module_t));
             m->filename = new wstring(it->c_str());
+            m->last_modified = last_mod_time;
             m->cache = new lookup_cache_t();
             m->L = luaL_newstate();
             _curr_m = m;
@@ -2910,7 +2944,8 @@ void init_lua_support()
                 lua_pop(L, 1);
             }
             else {
-                logu_("OK: Lua module initialized: %s\n", mfile.c_str());
+                m->stack_position = lua_gettop(L);
+                logu_("OK: Lua module initialized: %s (stack position: %d)\n", mfile.c_str(), m->stack_position);
                 //logu_("gettop: %d\n", lua_gettop(L));
 
                 // add to list of loaded modules
@@ -2931,6 +2966,185 @@ void init_lua_support()
         log_(L"Active modules: %d\n", _modules.size());
         log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
     }
+}
+
+void lua_reload_modified_modules()
+{
+    lock_t lock(&_cs);
+    list<module_t*>::iterator j;
+    int count = 0;
+    log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+    log_(L"Reloading modified modules ...\n");
+
+    for (j = _modules.begin(); j != _modules.end(); j++) {
+        module_t *m = *j;
+
+        wstring script_file(sider_dir);
+        script_file += L"modules\\";
+        script_file += m->filename->c_str();
+
+        DWORD size = 0;
+        HANDLE handle;
+        handle = CreateFileW(
+            script_file.c_str(),   // file to open
+            GENERIC_READ,          // open for reading
+            FILE_SHARE_READ,       // share for reading
+            NULL,                  // default security
+            OPEN_EXISTING,         // existing file only
+            FILE_ATTRIBUTE_NORMAL, // normal file
+            NULL);                 // no attr. template
+
+        if (handle == INVALID_HANDLE_VALUE)
+        {
+            log_(L"Reloading skipped because: PROBLEM: Unable to open file: %s\n",
+                script_file.c_str());
+            continue;
+        }
+
+        FILETIME last_mod_time;
+        memset(&last_mod_time, 0, sizeof(FILETIME));
+        GetFileTime(handle, NULL, NULL, &last_mod_time);
+
+        uint64_t *a = (uint64_t*)&last_mod_time;
+        uint64_t *b = (uint64_t*)&(m->last_modified);
+
+        if (!(*a > *b)) {
+            // not modified since last load
+            CloseHandle(handle);
+            continue;
+        }
+
+        log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+        log_(L"Modified module: %s ...\n", m->filename->c_str());
+
+        size = GetFileSize(handle, NULL);
+        BYTE *buf = new BYTE[size+1];
+        memset(buf, 0, size+1);
+        DWORD bytesRead = 0;
+        if (!ReadFile(handle, buf, size, &bytesRead, NULL)) {
+            log_(L"PROBLEM: ReadFile error for lua module: %s\n",
+                m->filename->c_str());
+            CloseHandle(handle);
+            continue;
+        }
+        CloseHandle(handle);
+        // script is now in memory
+
+        char *mfilename = (char*)Utf8::unicodeToUtf8(m->filename->c_str());
+        string mfile(mfilename);
+        Utf8::free(mfilename);
+        int r = luaL_loadbuffer(L, (const char*)buf, size, mfile.c_str());
+        delete buf;
+        if (r != 0) {
+            const char *err = lua_tostring(L, -1);
+            logu_("Lua module reloading PROBLEM: %s.\n", err);
+            logu_("WARNING: We are keeping the old version in memory\n");
+            lua_pop(L, 1);
+            continue;
+        }
+
+        // set environment
+        push_env_table(L, m->filename->c_str());
+        lua_setfenv(L, -2);
+
+        // run the module
+        if (lua_pcall(L, 0, 1, 0) != LUA_OK) {
+            const char *err = lua_tostring(L, -1);
+            logu_("Lua module initializing problem: %s. "
+                  "Reloading cancelled\n", err);
+            lua_pop(L, 1);
+            continue;
+        }
+
+        // check that module chunk is correctly constructed:
+        // it must return a table
+        if (!lua_istable(L, -1)) {
+            logu_("PROBLEM: Lua module (%s) must return a table. "
+                  "Reloading cancelled\n", mfile.c_str());
+            lua_pop(L, 1);
+            continue;
+        }
+
+        // now we have module table on the stack
+        // run its "init" method, with a context object
+        lua_getfield(L, -1, "init");
+        if (!lua_isfunction(L, -1)) {
+            logu_("PROBLEM: Lua module (%s) does not "
+                  "have \"init\" function. Reloading cancelled.\n",
+                  mfile.c_str());
+            lua_pop(L, 1);
+            continue;
+        }
+
+        module_t *newm = new module_t();
+        memset(newm, 0, sizeof(module_t));
+        newm->filename = new wstring(m->filename->c_str());
+        newm->last_modified = last_mod_time;
+        newm->cache = new lookup_cache_t();
+        newm->L = luaL_newstate();
+        _curr_m = newm;
+
+        lua_pushvalue(L, 1); // ctx
+        if (lua_pcall(L, 1, 0, 0) != LUA_OK) {
+            const char *err = lua_tostring(L, -1);
+            logu_("PROBLEM: Lua module (%s) \"init\" function "
+                  "returned an error: %s\n", mfile.c_str(), err);
+            logu_("Reloading cancelled\n");
+            lua_pop(L, 1);
+            // pop the module table too, since we are not using it
+            lua_pop(L, 1);
+
+            // clean up
+            lua_close(newm->L);
+            delete newm->cache;
+            delete newm;
+        }
+        else {
+            newm->stack_position = lua_gettop(L);
+            log_(L"RELOAD OK: Lua module initialized: %s (stack position: %d)\n", newm->filename->c_str(), newm->stack_position);
+            memcpy(m, newm, sizeof(module_t));  // new version takes over
+            count++;
+
+            //logu_("gettop: %d\n", lua_gettop(L));
+
+            // cleanup old state
+            // todo: figure out a safe way
+
+            // check if need to advance _curr_overlay_m iterator
+            if (_curr_overlay_m != _modules.end() && m == *_curr_overlay_m) {
+                if (!m->evt_overlay_on) {
+                    // this module no longer supports evt_overlay_on
+                    // need to switch to another
+                    bool switched(false);
+                    list<module_t*>::iterator k = _curr_overlay_m;
+                    k++;
+                    for (; k != _modules.end(); k++) {
+                        module_t *newm = *k;
+                        if (newm->evt_overlay_on) {
+                            _curr_overlay_m = k;
+                            switched = true;
+                            break;
+                        }
+                    }
+                    // go again from the start, if not switched yet
+                    if (!switched) {
+                        list<module_t*>::iterator k;
+                        for (k = _modules.begin(); k != _modules.end(); k++) {
+                            module_t *newm = *k;
+                            if (newm->evt_overlay_on) {
+                                _curr_overlay_m = k;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            // reload finished
+        }
+    }
+    log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+    log_(L"Reloaded modules: %d\n", count);
+    log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 }
 
 bool _install_func(IMAGE_SECTION_HEADER *h);
@@ -2977,6 +3191,8 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"overlay.font-size = %d\n", _config->_overlay_font_size);
     log_(L"overlay.vkey.toggle = 0x%02x\n", _config->_overlay_vkey_toggle);
     log_(L"overlay.vkey.next-module = 0x%02x\n", _config->_overlay_vkey_next_module);
+    log_(L"vkey.reload-1 = 0x%02x\n", _config->_vkey_reload_1);
+    log_(L"vkey.reload-2 = 0x%02x\n", _config->_vkey_reload_2);
     log_(L"close.on.exit = %d\n", _config->_close_sider_on_exit);
     log_(L"match.minutes = %d\n", _config->_num_minutes);
 
@@ -3344,6 +3560,14 @@ LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam)
         if (wParam == _config->_overlay_vkey_toggle && ((lParam & 0x80000000) != 0)) {
             _overlay_on = !_overlay_on;
             DBG(64) logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
+        }
+        else if (wParam == _config->_vkey_reload_2 && ((lParam & 0x80000000) != 0)) {
+            if (_reload_1_down) {
+                _reload_modified = true;
+            }
+        }
+        else if (wParam == _config->_vkey_reload_1 && ((lParam & 0x80000000) == 0)) {
+            _reload_1_down = ((lParam & 0x80000000) == 0);
         }
 
         if (_overlay_on) {

@@ -331,6 +331,7 @@ bool _reload_modified(false);
 bool _is_game(false);
 bool _is_sider(false);
 bool _is_edit_mode(false);
+bool _priority_set(false);
 HANDLE _mh = NULL;
 
 wstring _overlay_header;
@@ -376,6 +377,7 @@ public:
 class config_t {
 public:
     int _debug;
+    int _priority_class;
     bool _livecpk_enabled;
     bool _lookup_cache_enabled;
     bool _lua_enabled;
@@ -433,6 +435,7 @@ public:
     config_t(const wstring& section_name, const wchar_t* config_ini) :
                  _section_name(section_name),
                  _debug(0),
+                 _priority_class(0),
                  _livecpk_enabled(false),
                  _lookup_cache_enabled(true),
                  _lua_enabled(true),
@@ -562,6 +565,33 @@ public:
                 int v;
                 if (swscanf(value.c_str(), L"%x", &v)==1) {
                     _vkey_reload_2 = v;
+                }
+            }
+            else if (wcscmp(L"game.priority.class", key.c_str())==0) {
+                int v;
+                if (value == L"above_normal") {
+                    _priority_class = 0x8000;
+                }
+                else if (value == L"below_normal") {
+                    _priority_class = 0x4000;
+                }
+                else if (value == L"idle") {
+                    _priority_class = 0x40;
+                }
+                else if (value == L"normal") {
+                    _priority_class = 0x20;
+                }
+                else if (value == L"background_begin") {
+                    _priority_class = 0x00100000;
+                }
+                else if (value == L"background_begin") {
+                    _priority_class = 0x00200000;
+                }
+                else if (value == L"realtime") {
+                    _priority_class = 0x100;
+                }
+                else if (swscanf(value.c_str(), L"%x", &v)==1) {
+                    _priority_class = v;
                 }
             }
             else if (wcscmp(L"lua.extra-globals", key.c_str())==0) {
@@ -1901,6 +1931,17 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
         _reload_modified = false;
     }
 
+    // process priority
+    if (_config->_priority_class && !_priority_set) {
+        _priority_set = true;
+        if (SetPriorityClass(GetCurrentProcess(), _config->_priority_class)) {
+            logu_("SetPriorityClass successful for priority: 0x%x\n", _config->_priority_class);
+        }
+        else {
+            logu_("SetPriorityClass failed for priority: 0x%x\n", _config->_priority_class);
+        }
+    }
+
     if (_overlay_on) {
         // ask currently active module for text
         char *text = NULL;
@@ -3173,6 +3214,7 @@ DWORD install_func(LPVOID thread_param) {
     //if (_config->_game_speed) {
     //    log_(L"game.speed = %0.3f\n", *(_config->_game_speed));
     //}
+    log_(L"game.priority.class = 0x%x\n", _config->_priority_class);
     log_(L"livecpk.enabled = %d\n", _config->_livecpk_enabled);
     log_(L"lookup-cache.enabled = %d\n", _config->_lookup_cache_enabled);
     log_(L"lua.enabled = %d\n", _config->_lua_enabled);

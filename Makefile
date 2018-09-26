@@ -52,16 +52,16 @@ $(LUALIBPATH)\$(LUALIB):
 	cd $(LUALIBPATH) && msvcbuild.bat
 
 $(FW1LIBPATH)\$(FW1LIB):
-    cd $(FW1LIBROOT) && msbuild /p:Configuration=Release
+	cd $(FW1LIBROOT) && msbuild /p:Configuration=Release
 
 util.obj: util.asm
-    ml64 /c util.asm
+	ml64 /c util.asm
 
 vshader.h: vshader.hlsl
-    fxc /E siderVS /Ges /T vs_4_0 /Fh vshader.h vshader.hlsl
+	fxc /E siderVS /Ges /T vs_4_0 /Fh vshader.h vshader.hlsl
 
 pshader.h: pshader.hlsl
-    fxc /E siderPS /Ges /T ps_4_0 /Fh pshader.h pshader.hlsl
+	fxc /E siderPS /Ges /T ps_4_0 /Fh pshader.h pshader.hlsl
 
 sider.obj: sider.cpp sider.h patterns.h common.h imageutil.h vshader.h pshader.h
 sider.dll: sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj sider.res $(LUALIBPATH)\$(LUALIB) $(FW1LIBPATH)\$(FW1LIB)
@@ -81,6 +81,6 @@ clean:
 	del *.obj *.dll *.exp *.res *.lib *.exe *~ memlib_lua.h vshader.h pshader.h
 
 clean-all: clean
-    cd $(LUALIBPATH) && del /Q lua51.exp lua51.lib lua51.dll luajit.exe
-    cd $(FW1LIBROOT) && del /Q /S Debug Release
+	cd $(LUALIBPATH) && del /Q lua51.exp lua51.lib lua51.dll luajit.exe
+	cd $(FW1LIBROOT) && del /Q /S Debug Release
 

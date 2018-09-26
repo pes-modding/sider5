@@ -575,6 +575,9 @@ public:
                 else if (value == L"below_normal") {
                     _priority_class = 0x4000;
                 }
+                else if (value == L"high") {
+                    _priority_class = 0x80;
+                }
                 else if (value == L"idle") {
                     _priority_class = 0x40;
                 }
@@ -1932,13 +1935,15 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
     }
 
     // process priority
-    if (_config->_priority_class && !_priority_set) {
+    if (!_priority_set) {
         _priority_set = true;
-        if (SetPriorityClass(GetCurrentProcess(), _config->_priority_class)) {
-            logu_("SetPriorityClass successful for priority: 0x%x\n", _config->_priority_class);
-        }
-        else {
-            logu_("SetPriorityClass failed for priority: 0x%x\n", _config->_priority_class);
+        if (_config->_priority_class) {
+            if (SetPriorityClass(GetCurrentProcess(), _config->_priority_class)) {
+                logu_("SetPriorityClass successful for priority: 0x%x\n", _config->_priority_class);
+            }
+            else {
+                logu_("SetPriorityClass failed for priority: 0x%x\n", _config->_priority_class);
+            }
         }
     }
 
@@ -3141,9 +3146,10 @@ void lua_reload_modified_modules()
             delete newm;
         }
         else {
-            newm->stack_position = lua_gettop(L);
+            newm->stack_position = m->stack_position;
             log_(L"RELOAD OK: Lua module initialized: %s (stack position: %d)\n", newm->filename->c_str(), newm->stack_position);
             memcpy(m, newm, sizeof(module_t));  // new version takes over
+            lua_replace(L, newm->stack_position); // move to original module position on the stack
             count++;
 
             //logu_("gettop: %d\n", lua_gettop(L));

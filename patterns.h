@@ -51,14 +51,14 @@ static int lcpk_offs_at_lookup_file = 0;
 000000014ACDA20F | 48 81 C1 18 01 00 00                 | add rcx,118                                |
 000000014ACDA216 | 4C 01 C1                             | add rcx,r8                                 |
 */
-static BYTE pattern_set_team_id[26] =
-    "\x49\x63\x00"
-    "\x83\xf8\x02"
-    "\x7d\x16"
+static BYTE pattern_set_team_id[18] =
+    //"\x49\x63\x00"
+    //"\x83\xf8\x02"
+    //"\x7d\x26"
     "\x4c\x69\xc0\xec\x05\x00\x00"
     "\x48\x81\xc1\x18\x01\x00\x00"
     "\x4c\x01\xc1";
-static int offs_set_team_id = 0;
+static int offs_set_team_id = -8;
 
 static BYTE pattern_set_team_id_head[2] =
     "\x52"; // push rdx
@@ -74,11 +74,20 @@ static BYTE pattern_set_team_id_head[2] =
 000000014D9310E7 | 90                                   | nop                                      |
 000000014D9310E8 | 90                                   | nop                                      |
 */
-static BYTE pattern_set_team_id_tail[13] =
+static BYTE pattern_set_team_id_tail_1[13] =
     "\x5a"
     "\x83\xf8\x02"
     "\x7d\x0b"
     "\x90\x90\x90\x90\x90\x90";
+static BYTE pattern_set_team_id_tail_2[13] =
+    "\x5a"
+    "\x83\xf8\x02"
+    "\x7d\x1b"
+    "\x90\x90\x90\x90\x90\x90";
+
+static BYTE check_set_team_id_1[3] = "\x7d\x16";
+static BYTE check_set_team_id_2[3] = "\x7d\x26";
+static int offs_check_set_team_id = -2;
 
 /*
 000000014ACD9D36 | 8B 82 98 00 00 00                    | mov eax,dword ptr ds:[rdx+98]        |

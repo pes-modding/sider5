@@ -1,7 +1,7 @@
 Sider 5 for Pro Evolution Soccer 2019
 =====================================
 Copyright (C) 2018 juce
-Version 5.1.0
+Version 5.1.1
 
 
 
@@ -192,6 +192,26 @@ overlay.text-color = "80ff80c0"
 
 - colors are specified in RRGGBBAA format (similar to how it is
 done in HTML, except that you do not put '#' character in front)
+
+
+vkey.reload-1 = 0x10
+vkey.reload-2 = 0x52
+
+- These two settings define a hot-key combination that can be used
+to reload Lua modules, without restarting the game. This is not a feature
+that you would normally use during regular gameplay, but if you are
+writing a module, very often you need to make a small fix or change.
+Restarting the game every time can be time consuming, so this feature
+allows to reload all modules that were modified since the last time
+they were loaded. Default is: Shift-R  (0x10 and 0x52).
+
+
+game.priority.class = "above_normal"
+
+- This option allows to change the priority of the game process. Sometimes
+this is useful, and reportedly can help to combat FPS drops. Supported values
+are: "above_normal", "below_normal", "high", "idle", "normal" and "realtime".
+By default, the game sets its priority to "above_normal".
 
 
 

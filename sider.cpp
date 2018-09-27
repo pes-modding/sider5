@@ -587,7 +587,7 @@ public:
                 else if (value == L"background_begin") {
                     _priority_class = 0x00100000;
                 }
-                else if (value == L"background_begin") {
+                else if (value == L"background_end") {
                     _priority_class = 0x00200000;
                 }
                 else if (value == L"realtime") {
@@ -3455,10 +3455,24 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
             log_(L"sider_context_reset: %p\n", sider_context_reset_hk);
             log_(L"sider_ball_name: %p\n", sider_ball_name_hk);
 
-            if (_config->_hook_set_team_id)
-                hook_call_rdx_with_head_and_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
-                    (BYTE*)pattern_set_team_id_head, sizeof(pattern_set_team_id_head)-1,
-                    (BYTE*)pattern_set_team_id_tail, sizeof(pattern_set_team_id_tail)-1);
+            if (_config->_hook_set_team_id) {
+                BYTE *check_addr = _config->_hp_at_set_team_id - offs_set_team_id + offs_check_set_team_id;
+                logu_("_hp_at_set_team_id: %p\n", _config->_hp_at_set_team_id);
+                logu_("check_addr: %p\n", check_addr);
+                logu_("instruction at check_addr: %02x %02x\n", check_addr[0], check_addr[1]);
+                if (memcmp(check_addr, check_set_team_id_1, sizeof(check_set_team_id_1)-1)==0) {
+                    logu_("Using 1st variation of set_team_id hook\n");
+                    hook_call_rdx_with_head_and_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
+                        (BYTE*)pattern_set_team_id_head, sizeof(pattern_set_team_id_head)-1,
+                        (BYTE*)pattern_set_team_id_tail_1, sizeof(pattern_set_team_id_tail_1)-1);
+                }
+                else if (memcmp(check_addr, check_set_team_id_2, sizeof(check_set_team_id_2)-1)==0) {
+                    logu_("Using 2nd variation of set_team_id hook\n");
+                    hook_call_rdx_with_head_and_tail(_config->_hp_at_set_team_id, (BYTE*)sider_set_team_id_hk,
+                        (BYTE*)pattern_set_team_id_head, sizeof(pattern_set_team_id_head)-1,
+                        (BYTE*)pattern_set_team_id_tail_2, sizeof(pattern_set_team_id_tail_2)-1);
+                }
+            }
             if (_config->_hook_set_settings)
                 hook_call_with_head_and_tail(_config->_hp_at_set_settings, (BYTE*)sider_set_settings_hk,
                     (BYTE*)pattern_set_settings_head, sizeof(pattern_set_settings_head)-1,

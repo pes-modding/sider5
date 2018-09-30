@@ -18,6 +18,7 @@
 #include "d3d11.h"
 #include "d3dcompiler.h"
 #include "FW1FontWrapper.h"
+#include "dinput.h"
 
 #include "lua.hpp"
 #include "lauxlib.h"
@@ -26,6 +27,8 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "dxgi.lib")
 #pragma comment(lib, "d3dcompiler.lib")
+#pragma comment(lib, "dinput8.lib")
+#pragma comment(lib, "dxguid.lib")
 
 #ifndef LUA_OK
 #define LUA_OK 0
@@ -196,6 +199,10 @@ PFN_IDXGISwapChain_Present _org_Present;
 HRESULT sider_CreateDXGIFactory1(REFIID riid, void **ppFactory);
 HRESULT sider_CreateSwapChain(IDXGIFactory1 *pFactory, IUnknown *pDevice, DXGI_SWAP_CHAIN_DESC *pDesc, IDXGISwapChain **ppSwapChain);
 HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags);
+BOOL sider_device_enum_callback(LPCDIDEVICEINSTANCE lppdi, LPVOID pvRef);
+BOOL sider_device_enum_callback(LPCDIDEVICEINSTANCE lppdi, LPVOID pvRef);
+BOOL sider_object_enum_callback(LPCDIDEVICEOBJECTINSTANCE lpddoi, LPVOID pvRef);
+void init_direct_input();
 
 ID3D11Device *_device(NULL);
 ID3D11DeviceContext *_device_context(NULL);
@@ -210,6 +217,19 @@ struct dx11_t {
     UINT Height;
 };
 dx11_t DX11;
+
+IDirectInput8 *g_IDirectInput8;
+IDirectInputDevice8 *g_IDirectInputDevice8;
+GUID g_controller_guid_instance;
+bool _has_controller(false);
+bool _controller_prepped(false);
+int _frame_count(0);
+#define CHECK_EACH_FRAMES 10
+
+DIDATAFORMAT _data_format;
+int _num_buttons;
+DWORD _prev_controller_buttons[32];
+DWORD _controller_buttons[32];
 
 IFW1Factory *g_pFW1Factory;
 IFW1FontWrapper *g_pFontWrapper;
@@ -396,6 +416,7 @@ public:
     bool _free_side_select;
     bool _overlay_enabled;
     bool _overlay_on_from_start;
+    bool _overlay_controlled_by_gamepad;
     wstring _overlay_font;
     DWORD _overlay_text_color;
     DWORD _overlay_background_color;
@@ -446,6 +467,7 @@ public:
                  _free_side_select(false),
                  _overlay_enabled(false),
                  _overlay_on_from_start(false),
+                 _overlay_controlled_by_gamepad(false),
                  _overlay_font(DEFAULT_OVERLAY_FONT),
                  _overlay_text_color(DEFAULT_OVERLAY_TEXT_COLOR),
                  _overlay_background_color(DEFAULT_OVERLAY_BACKGROUND_COLOR),
@@ -658,6 +680,10 @@ public:
 
         _overlay_on_from_start = GetPrivateProfileInt(_section_name.c_str(),
             L"overlay.on-from-start", _overlay_on_from_start,
+            config_ini);
+
+        _overlay_controlled_by_gamepad = GetPrivateProfileInt(_section_name.c_str(),
+            L"overlay.gamepad.enabled", _overlay_controlled_by_gamepad,
             config_ini);
 
         _overlay_font_size = GetPrivateProfileInt(_section_name.c_str(),
@@ -996,6 +1022,21 @@ static bool is_pes(wchar_t* name, wstring** match)
     UnmapViewOfFile(h);
     CloseHandle(h);
     return result;
+}
+
+BOOL sider_device_enum_callback(LPCDIDEVICEINSTANCE lppdi, LPVOID pvRef)
+{
+    log_(L"controller: type: %x name: %s\n", lppdi->dwDevType, lppdi->tszInstanceName);
+    g_controller_guid_instance = lppdi->guidInstance;
+    _has_controller = true;
+    return DIENUM_CONTINUE;
+}
+
+BOOL sider_object_enum_callback(LPCDIDEVICEOBJECTINSTANCE lpddoi, LPVOID pvRef)
+{
+    log_(L"object: name: %s\n", lpddoi->tszName);
+    _num_buttons++;
+    return DIENUM_CONTINUE;
 }
 
 wstring* _have_live_file(char *file_name)
@@ -1919,6 +1960,32 @@ void draw_simple_test()
     g_pRenderTargetView->Release();
 }
 
+void sider_switch_overlay_to_next_module()
+{
+    if (_curr_overlay_m != _modules.end()) {
+        // next module
+        _curr_overlay_m++;
+        for (; _curr_overlay_m != _modules.end(); _curr_overlay_m++) {
+            module_t *m = *_curr_overlay_m;
+            if (m->evt_overlay_on) {
+                log_(L"now active module on overlay: %s\n", m->filename->c_str());
+                break;
+            }
+        }
+        if (_curr_overlay_m == _modules.end()) {
+            // start from beginning again
+            _curr_overlay_m = _modules.begin();
+            for (; _curr_overlay_m != _modules.end(); _curr_overlay_m++) {
+                module_t *m = *_curr_overlay_m;
+                if (m->evt_overlay_on) {
+                    log_(L"now active module on overlay: %s\n", m->filename->c_str());
+                    break;
+                }
+            }
+        }
+    }
+}
+
 HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
 {
     //logu_("Present called for swapChain: %p\n", swapChain);
@@ -1946,6 +2013,87 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
             }
         }
     }
+
+    if (_has_controller) {
+        _frame_count = (_frame_count + 1) % CHECK_EACH_FRAMES;
+        if (!_controller_prepped) {
+            HRESULT hr;
+            if (FAILED(g_IDirectInputDevice8->SetCooperativeLevel(DX11.Window, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE))) {
+                logu_("failed to set cooperative level\n");
+            }
+            hr = g_IDirectInputDevice8->SetDataFormat(&_data_format);
+            if (FAILED(hr)) {
+                if (hr == DIERR_INVALIDPARAM) {
+                    logu_("failed to set data format: DIERR_INVALIDPARAM\n");
+                }
+                else {
+                    logu_("failed to set data format: %x\n");
+                }
+            }
+            _controller_prepped = true;
+        }
+        else if (_frame_count == 0) {
+            if (SUCCEEDED(g_IDirectInputDevice8->Acquire())) {
+                memcpy(&_prev_controller_buttons, &_controller_buttons, sizeof(_controller_buttons));
+                hr = g_IDirectInputDevice8->GetDeviceState(sizeof(_controller_buttons), &_controller_buttons);
+                if (SUCCEEDED(hr)) {
+                    for (int i=0; i<_num_buttons; i++) {
+                        if (_prev_controller_buttons[i]==0 && _controller_buttons[i]!=0) {
+                            DBG(64) logu_("controller button %d DOWN\n", i);
+                        }
+                        else if (_prev_controller_buttons[i]!=0 && _controller_buttons[i]==0) {
+                            DBG(64) logu_("controller button %d UP\n", i);
+                        }
+                    }
+
+                    // test for events
+                    // overlay toggle
+                    if ((_prev_controller_buttons[6]==0 || _prev_controller_buttons[7]==0) && _controller_buttons[6]!=0 && _controller_buttons[7]!=0) {
+                        _overlay_on = !_overlay_on;
+                        DBG(64) logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
+                    }
+                    else if (_prev_controller_buttons[6]==0 && _controller_buttons[6]!=0) {
+                        if (_overlay_on) {
+                            sider_switch_overlay_to_next_module();
+                        }
+                    }
+                }
+                else {
+                    if (hr == DIERR_INVALIDPARAM) {
+                        logu_("failed to get device state: DIERR_INVALIDPARAM\n");
+                    }
+                    else if (hr == DIERR_NOTACQUIRED) {
+                        logu_("failed to get device state: DIERR_NOTACQUIRED\n");
+                    }
+                    else {
+                        logu_("failed to get device state: %x\n", hr);
+                    }
+                }
+                g_IDirectInputDevice8->Unacquire();
+            }
+        }
+    }
+
+    // read controller state
+    /*
+    DWORD dwResult;
+    for (DWORD i=0; i<XUSER_MAX_COUNT; i++ ) {
+        XINPUT_STATE state;
+        ZeroMemory( &state, sizeof(XINPUT_STATE) );
+
+        // Simply get the state of the controller from XInput.
+        dwResult = XInputGetState( i, &state );
+
+        if( dwResult == ERROR_SUCCESS ) {
+            // Controller is connected
+            logu_("state.Gamepad.wButtons = %04x\n", state.Gamepad.wButtons);
+        }
+        else {
+            // Controller is not connected
+            logu_("controller %d is not connected\n", i);
+        }
+    }
+    */
 
     if (_overlay_on) {
         // ask currently active module for text
@@ -3232,6 +3380,8 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"start.minimized = %d\n", _config->_start_minimized);
     log_(L"free.side.select = %d\n", _config->_free_side_select);
     log_(L"overlay.enabled = %d\n", _config->_overlay_enabled);
+    log_(L"overlay.on-from-start = %d\n", _config->_overlay_on_from_start);
+    log_(L"overlay.gamepad.enabled = %d\n", _config->_overlay_controlled_by_gamepad);
     log_(L"overlay.font = %s\n", _config->_overlay_font.c_str());
     log_(L"overlay.text-color = 0x%08x\n", _config->_overlay_text_color);
     log_(L"overlay.background-color = 0x%08x\n", _config->_overlay_background_color);
@@ -3274,6 +3424,7 @@ DWORD install_func(LPVOID thread_param) {
         }
 
         if (_install_func(h)) {
+            init_direct_input();
             init_lua_support();
             break;
         }
@@ -3514,6 +3665,65 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     return result;
 }
 
+void init_direct_input()
+{
+    // initialize DirectInput
+    g_IDirectInput8 = NULL;
+    if (_config->_overlay_controlled_by_gamepad && SUCCEEDED(DirectInput8Create(
+        myHDLL, DIRECTINPUT_VERSION, IID_IDirectInput8,
+        (void**)&g_IDirectInput8, NULL))) {
+        logu_("g_IDirectInput8 = %p\n", g_IDirectInput8);
+
+        // enumerate devices
+        _has_controller = false;
+        logu_("Enumerating game controllers\n");
+        if (SUCCEEDED(g_IDirectInput8->EnumDevices(
+            DI8DEVCLASS_GAMECTRL, sider_device_enum_callback, NULL, DIEDFL_ALLDEVICES))) {
+            logu_("Done enumerating game controllers\n");
+
+            if (_has_controller) {
+                g_IDirectInputDevice8 = NULL;
+                if (SUCCEEDED(g_IDirectInput8->CreateDevice(
+                    g_controller_guid_instance, &g_IDirectInputDevice8, NULL))) {
+                    logu_("DirectInputDevice created: %p\n", g_IDirectInputDevice8);
+
+                    // enumerate buttons and prepare data format
+                    _num_buttons = 0;
+                    if (SUCCEEDED(g_IDirectInputDevice8->EnumObjects(
+                        sider_object_enum_callback, NULL, DIDFT_PSHBUTTON))) {
+                        logu_("number of buttons: %d\n", _num_buttons);
+
+                        memset(&_data_format, 0, sizeof(DIDATAFORMAT));
+                        _data_format.dwSize = sizeof(DIDATAFORMAT);
+                        _data_format.dwObjSize = sizeof(DIOBJECTDATAFORMAT);
+                        _data_format.dwFlags = DIDF_ABSAXIS;
+                        _data_format.dwDataSize = sizeof(_controller_buttons);
+                        _data_format.dwNumObjs = _num_buttons;
+                        size_t rgodf_size = sizeof(DIOBJECTDATAFORMAT) * _num_buttons;
+                        _data_format.rgodf = (LPDIOBJECTDATAFORMAT)malloc(rgodf_size);
+                        for (int i=0; i<_num_buttons; i++) {
+                            _data_format.rgodf[i].pguid = &GUID_Button;
+                            _data_format.rgodf[i].dwOfs = i*4;
+                            _data_format.rgodf[i].dwType = DIDFT_PSHBUTTON | DIDFT_MAKEINSTANCE(i);
+                            _data_format.rgodf[i].dwFlags = 0;
+                        }
+
+                        _controller_prepped = false;
+                        memset(_controller_buttons, 0, sizeof(_controller_buttons));
+                        memset(_prev_controller_buttons, 0, sizeof(_prev_controller_buttons));
+                    }
+                }
+            }
+        }
+        else {
+            logu_("PROBLEM enumerating game controllers\n");
+        }
+    }
+    else {
+        logu_("PROBLEM creating DirectInput interface\n");
+    }
+}
+
 INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
 {
     wstring *match = NULL;
@@ -3580,6 +3790,19 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
             if (_is_game) {
                 if (_key_cache) { delete _key_cache; }
                 if (_rewrite_cache) { delete _rewrite_cache; }
+
+                if (g_IDirectInputDevice8) {
+                    g_IDirectInputDevice8->Unacquire();
+                    log_(L"Releasing DirectInputDevice interface (%p)\n", g_IDirectInputDevice8);
+                    g_IDirectInputDevice8->Release();
+                    g_IDirectInputDevice8 = NULL;
+                }
+                if (g_IDirectInput8) {
+                    log_(L"Releasing DirectInput interface (%p)\n", g_IDirectInput8);
+                    g_IDirectInput8->Release();
+                    g_IDirectInput8 = NULL;
+                }
+
                 log_(L"DLL detaching from (%s).\n", module_filename);
                 log_(L"Unmapping from PES.\n");
 
@@ -3640,26 +3863,7 @@ LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam)
                     // module switching keys
                     // "[" - 0xdb, "]" - 0xdd, "~" - 0xc0, "1" - 0x31
                     if (wParam == _config->_overlay_vkey_next_module) {
-                        // next module
-                        _curr_overlay_m++;
-                        for (; _curr_overlay_m != _modules.end(); _curr_overlay_m++) {
-                            module_t *m = *_curr_overlay_m;
-                            if (m->evt_overlay_on) {
-                                log_(L"now active module on overlay: %s\n", m->filename->c_str());
-                                break;
-                            }
-                        }
-                        if (_curr_overlay_m == _modules.end()) {
-                            // start from beginning again
-                            _curr_overlay_m = _modules.begin();
-                            for (; _curr_overlay_m != _modules.end(); _curr_overlay_m++) {
-                                module_t *m = *_curr_overlay_m;
-                                if (m->evt_overlay_on) {
-                                    log_(L"now active module on overlay: %s\n", m->filename->c_str());
-                                    break;
-                                }
-                            }
-                        }
+                        sider_switch_overlay_to_next_module();
                     }
                     else {
                         // lua callback

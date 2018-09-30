@@ -224,7 +224,6 @@ GUID g_controller_guid_instance;
 bool _has_controller(false);
 bool _controller_prepped(false);
 int _frame_count(0);
-#define CHECK_EACH_FRAMES 10
 
 DIDATAFORMAT _data_format;
 int _num_buttons;
@@ -368,6 +367,7 @@ char _overlay_utf8_text[1024];
 #define DEFAULT_OVERLAY_VKEY_NEXT_MODULE 0x31
 #define DEFAULT_VKEY_RELOAD_1 0x10 //Shift
 #define DEFAULT_VKEY_RELOAD_2 0x52 //R
+#define DEFAULT_CHECK_EACH_FRAMES 6
 
 wchar_t module_filename[MAX_PATH];
 wchar_t dll_log[MAX_PATH];
@@ -417,6 +417,7 @@ public:
     bool _overlay_enabled;
     bool _overlay_on_from_start;
     bool _overlay_controlled_by_gamepad;
+    int _gamepad_read_frame_count;
     wstring _overlay_font;
     DWORD _overlay_text_color;
     DWORD _overlay_background_color;
@@ -475,6 +476,7 @@ public:
                  _overlay_location(DEFAULT_OVERLAY_LOCATION),
                  _overlay_vkey_toggle(DEFAULT_OVERLAY_VKEY_TOGGLE),
                  _overlay_vkey_next_module(DEFAULT_OVERLAY_VKEY_NEXT_MODULE),
+                 _gamepad_read_frame_count(DEFAULT_CHECK_EACH_FRAMES),
                  _vkey_reload_1(DEFAULT_VKEY_RELOAD_1),
                  _vkey_reload_2(DEFAULT_VKEY_RELOAD_2),
                  _key_cache_ttl_sec(10),
@@ -688,6 +690,10 @@ public:
 
         _overlay_font_size = GetPrivateProfileInt(_section_name.c_str(),
             L"overlay.font-size", _overlay_font_size,
+            config_ini);
+
+        _gamepad_read_frame_count = GetPrivateProfileInt(_section_name.c_str(),
+            L"gamepad.read-frame-count", _gamepad_read_frame_count,
             config_ini);
 
         _livecpk_enabled = GetPrivateProfileInt(_section_name.c_str(),
@@ -2015,7 +2021,7 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
     }
 
     if (_has_controller) {
-        _frame_count = (_frame_count + 1) % CHECK_EACH_FRAMES;
+        _frame_count = (_frame_count + 1) % _config->_gamepad_read_frame_count;
         if (!_controller_prepped) {
             HRESULT hr;
             if (FAILED(g_IDirectInputDevice8->SetCooperativeLevel(DX11.Window, DISCL_FOREGROUND | DISCL_NONEXCLUSIVE))) {
@@ -3389,6 +3395,7 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"overlay.font-size = %d\n", _config->_overlay_font_size);
     log_(L"overlay.vkey.toggle = 0x%02x\n", _config->_overlay_vkey_toggle);
     log_(L"overlay.vkey.next-module = 0x%02x\n", _config->_overlay_vkey_next_module);
+    log_(L"gamepad.read-frame-count = %d\n", _config->_gamepad_read_frame_count);
     log_(L"vkey.reload-1 = 0x%02x\n", _config->_vkey_reload_1);
     log_(L"vkey.reload-2 = 0x%02x\n", _config->_vkey_reload_2);
     log_(L"close.on.exit = %d\n", _config->_close_sider_on_exit);

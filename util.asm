@@ -17,6 +17,8 @@ extern sider_context_reset:proc
 extern sider_free_select:proc
 extern sider_trophy_table:proc
 extern sider_ball_name:proc
+extern sider_stadium_name:proc
+extern sider_set_stadium_choice:proc
 
 .code
 sider_read_file_hk proc
@@ -248,5 +250,52 @@ next:   inc     r8
         ret
 
 sider_ball_name_hk endp
+
+;000000014CFE651F | 49 83 C8 FF                  | or r8,FFFFFFFFFFFFFFFF                 |
+;000000014CFE6523 | 49 FF C0                     | inc r8                                 |
+;000000014CFE6526 | 42 80 3C 02 00               | cmp byte ptr ds:[rdx+r8],0             | rdx+r8*1:"Allianz Parque"
+;000000014CFE652B | 75 F6                        | jne pes2019.14CFE6523                  |
+;000000014CFE652D | 48 89 C1                     | mov rcx,rax                            | rcx:dst,rdx:src,r8:len
+
+sider_stadium_name_hk proc
+
+        sub     rsp,38h
+        mov     [rsp+20h],rcx
+        mov     [rsp+28h],rdx
+        mov     rcx,rdx
+        call    sider_stadium_name
+        mov     rdx,rax
+        mov     rcx,[rsp+20h]
+        or      r8,0ffffffffffffffffh
+next:   inc     r8
+        cmp     byte ptr [rdx+r8],0
+        jne     next
+        mov     rax,[rsp+40h]
+        mov     rcx,rax
+        add     rsp,38h
+        ret
+
+sider_stadium_name_hk endp
+
+sider_set_stadium_choice_hk proc
+
+        push    rcx
+        push    rdx
+        push    r8
+        push    r9
+        push    r10
+        push    r11
+        sub     rsp,28h
+        call    sider_set_stadium_choice
+        add     rsp,28h
+        pop     r11
+        pop     r10
+        pop     r9
+        pop     r8
+        pop     rdx
+        pop     rcx
+        ret
+
+sider_set_stadium_choice_hk endp
 
 end

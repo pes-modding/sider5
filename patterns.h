@@ -239,4 +239,58 @@ static BYTE pattern_dxgi[20] =
     "\x48\x8d\x54\x24\x30";
 static int offs_dxgi = 0x1a;
 
+/*
+000000014136B3F0 | 88 51 32                             | mov byte ptr ds:[rcx+32],dl            | write stadium choice
+000000014136B3F3 | C3                                   | ret                                    |
+000000014136B3F4 | CC                                   | int3                                   |
+000000014136B3F5 | CC                                   | int3                                   |
+000000014136B3F6 | CC                                   | int3                                   |
+000000014136B3F7 | CC                                   | int3                                   |
+000000014136B3F8 | CC                                   | int3                                   |
+000000014136B3F9 | CC                                   | int3                                   |
+000000014136B3FA | CC                                   | int3                                   |
+000000014136B3FB | CC                                   | int3                                   |
+000000014136B3FC | CC                                   | int3                                   |
+000000014136B3FD | CC                                   | int3                                   |
+000000014136B3FE | CC                                   | int3                                   |
+000000014136B3FF | CC                                   | int3                                   |
+*/
+static BYTE pattern_set_stadium_choice[17] =
+    "\x88\x51\x32"
+    "\xc3"
+    "\xcc\xcc\xcc\xcc"
+    "\xcc\xcc\xcc\xcc"
+    "\xcc\xcc\xcc\xcc";
+static int offs_set_stadium_choice = 0;
+static BYTE pattern_set_stadium_choice_head[2] =
+    "\x50";
+static BYTE pattern_set_stadium_choice_tail[3] =
+    "\x58\xc3";
+
+/*
+000000014CFE6503 | 80 79 08 00             | cmp byte ptr ds:[rcx+8],0              | before stadium name copy
+000000014CFE6507 | 48 8D 51 08             | lea rdx,qword ptr ds:[rcx+8]           | rdx:"Allianz Parque"
+000000014CFE650B | 75 12                   | jne pes2019.14CFE651F                  |
+000000014CFE650D | 45 31 C0                | xor r8d,r8d                            |
+000000014CFE6510 | 48 89 C1                | mov rcx,rax                            |
+000000014CFE6513 | E8 48 BE 4C F3          | call pes2019.1404B2360                 |
+000000014CFE6518 | B0 01                   | mov al,1                               |
+000000014CFE651A | 48 83 C4 28             | add rsp,28                             |
+000000014CFE651E | C3                      | ret                                    |
+000000014CFE651F | 49 83 C8 FF             | or r8,FFFFFFFFFFFFFFFF                 |
+000000014CFE6523 | 49 FF C0                | inc r8                                 |
+000000014CFE6526 | 42 80 3C 02 00          | cmp byte ptr ds:[rdx+r8],0             | rdx+r8*1:"Allianz Parque"
+000000014CFE652B | 75 F6                   | jne pes2019.14CFE6523                  |
+000000014CFE652D | 48 89 C1                | mov rcx,rax                            |
+*/
+static BYTE pattern_stadium_name[17] =
+    "\x80\x79\x08\x00"
+    "\x48\x8d\x51\x08"
+    "\x75\x12"
+    "\x45\x31\xc0"
+    "\x48\x89\xc1";
+static int offs_stadium_name = 28;
+static BYTE pattern_stadium_name_head[3] = "\x50\x50";
+static BYTE pattern_stadium_name_tail[4] = "\x58\x58\x90";
+
 #endif

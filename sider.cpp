@@ -157,6 +157,7 @@ trophy_map_t *_trophy_map;
 
 WORD _tournament_id = 0xffff;
 char _ball_name[256];
+char _stadium_name[256];
 
 // home team encoded-id offset: 0x104
 // home team name offset:       0x108
@@ -337,6 +338,13 @@ extern "C" char* sider_ball_name(char *ball_name);
 
 extern "C" void sider_ball_name_hk();
 
+extern "C" char* sider_stadium_name(char *stadium_name);
+
+extern "C" void sider_stadium_name_hk();
+
+extern "C" void sider_set_stadium_choice(MATCH_INFO_STRUCT *mi, BYTE stadium_id);
+
+extern "C" void sider_set_stadium_choice_hk();
 
 static DWORD dwThreadId;
 static DWORD hookingThreadId = 0;
@@ -439,6 +447,8 @@ public:
     BYTE *_hp_at_context_reset;
     BYTE *_hp_at_trophy_table;
     BYTE *_hp_at_ball_name;
+    BYTE *_hp_at_stadium_name;
+    BYTE *_hp_at_set_stadium_choice;
 
     BYTE *_hp_at_set_min_time;
     BYTE *_hp_at_set_max_time;
@@ -490,12 +500,14 @@ public:
                  _hp_at_set_settings(NULL),
                  _hp_at_trophy_check(NULL),
                  _hp_at_context_reset(NULL),
+                 _hp_at_set_stadium_choice(NULL),
                  _hp_at_set_min_time(NULL),
                  _hp_at_set_max_time(NULL),
                  _hp_at_set_minutes(NULL),
                  _hp_at_sider(NULL),
                  _hp_at_trophy_table(NULL),
                  _hp_at_ball_name(NULL),
+                 _hp_at_stadium_name(NULL),
                  _hp_at_dxgi(NULL),
                  _hook_set_team_id(true),
                  _hook_set_settings(true),
@@ -849,9 +861,7 @@ struct module_t {
     int evt_set_tid;
     */
     int evt_set_match_time;
-    /*
     int evt_set_stadium_choice;
-    */
     int evt_set_stadium;
     int evt_set_conditions;
     int evt_after_set_conditions;
@@ -861,8 +871,8 @@ struct module_t {
     int evt_after_set_conditions_for_replay;
     */
     int evt_get_ball_name;
-    /*
     int evt_get_stadium_name;
+    /*
     int evt_enter_edit_mode;
     int evt_exit_edit_mode;
     int evt_enter_replay_gallery;
@@ -1263,6 +1273,30 @@ bool module_set_match_time(module_t *m, DWORD *num_minutes)
     return res;
 }
 
+bool module_set_stadium_choice(module_t *m, BYTE stadium_id, BYTE *new_stadium_id)
+{
+    bool res(false);
+    if (m->evt_set_stadium_choice != 0) {
+        EnterCriticalSection(&_cs);
+        lua_pushvalue(m->L, m->evt_set_stadium_choice);
+        lua_xmove(m->L, L, 1);
+        // push params
+        lua_pushvalue(L, 1); // ctx
+        lua_pushinteger(L, stadium_id);
+        if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
+            const char *err = luaL_checkstring(L, -1);
+            logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+        }
+        else if (lua_isnumber(L, -1)) {
+            *new_stadium_id = luaL_checkint(L, -1);
+            res = true;
+        }
+        lua_pop(L, 1);
+        LeaveCriticalSection(&_cs);
+    }
+    return res;
+}
+
 bool module_set_stadium(module_t *m, MATCH_INFO_STRUCT *mi)
 {
     bool res(false);
@@ -1416,6 +1450,32 @@ char *module_ball_name(module_t *m, char *name)
             memset(_ball_name, 0, sizeof(_ball_name));
             strncpy(_ball_name, s, sizeof(_ball_name)-1);
             res = _ball_name;
+        }
+        lua_pop(L, 1);
+        LeaveCriticalSection(&_cs);
+    }
+    return res;
+}
+
+char *module_stadium_name(module_t *m, char *name)
+{
+    char *res = NULL;
+    if (m->evt_get_stadium_name != 0) {
+        EnterCriticalSection(&_cs);
+        lua_pushvalue(m->L, m->evt_get_stadium_name);
+        lua_xmove(m->L, L, 1);
+        // push params
+        lua_pushvalue(L, 1); // ctx
+        lua_pushstring(L, name);
+        if (lua_pcall(L, 2, 1, 0) != LUA_OK) {
+            const char *err = luaL_checkstring(L, -1);
+            logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+        }
+        else if (lua_isstring(L, -1)) {
+            const char *s = luaL_checkstring(L, -1);
+            memset(_stadium_name, 0, sizeof(_stadium_name));
+            strncpy(_stadium_name, s, sizeof(_stadium_name)-1);
+            res = _stadium_name;
         }
         lua_pop(L, 1);
         LeaveCriticalSection(&_cs);
@@ -2621,6 +2681,41 @@ char* sider_ball_name(char *ball_name)
     return ball_name;
 }
 
+char* sider_stadium_name(char *stadium_name)
+{
+    if (_config->_lua_enabled) {
+        // lua callbacks
+        list<module_t*>::iterator i;
+        for (i = _modules.begin(); i != _modules.end(); i++) {
+            module_t *m = *i;
+            char *new_stadium_name = module_stadium_name(m, stadium_name);
+            if (new_stadium_name) {
+                return new_stadium_name;
+            }
+        }
+    }
+    return stadium_name;
+}
+
+void sider_set_stadium_choice(MATCH_INFO_STRUCT *mi, BYTE stadium_choice)
+{
+    mi->stadium_choice = stadium_choice;
+    if (_config->_lua_enabled) {
+        // lua callbacks
+        list<module_t*>::iterator i;
+        for (i = _modules.begin(); i != _modules.end(); i++) {
+            module_t *m = *i;
+            BYTE new_stadium_choice;
+            if (module_set_stadium_choice(m, stadium_choice, &new_stadium_choice)) {
+                mi->stadium_choice = new_stadium_choice;
+                break;
+            }
+        }
+    }
+    set_context_field_int("stadium_choice", mi->stadium_choice);
+    logu_("set_stadium_choice: %d\n", mi->stadium_choice);
+}
+
 BYTE* get_target_location(BYTE *call_location)
 {
     if (call_location) {
@@ -2804,14 +2899,12 @@ static int sider_context_register(lua_State *L)
         _curr_m->evt_set_match_time = lua_gettop(_curr_m->L);
         logu_("Registered for \"%s\" event\n", event_key);
     }
-    /*
     else if (strcmp(event_key, "set_stadium_choice")==0) {
         lua_pushvalue(L, -1);
         lua_xmove(L, _curr_m->L, 1);
         _curr_m->evt_set_stadium_choice = lua_gettop(_curr_m->L);
         logu_("Registered for \"%s\" event\n", event_key);
     }
-    */
     else if (strcmp(event_key, "set_stadium")==0) {
         lua_pushvalue(L, -1);
         lua_xmove(L, _curr_m->L, 1);
@@ -2868,13 +2961,13 @@ static int sider_context_register(lua_State *L)
         _curr_m->evt_key_down = lua_gettop(_curr_m->L);
         logu_("Registered for \"%s\" event\n", event_key);
     }
-    /*
     else if (strcmp(event_key, "get_stadium_name")==0) {
         lua_pushvalue(L, -1);
         lua_xmove(L, _curr_m->L, 1);
         _curr_m->evt_get_stadium_name = lua_gettop(_curr_m->L);
         logu_("Registered for \"%s\" event\n", event_key);
     }
+    /*
     else if (strcmp(event_key, "enter_edit_mode")==0) {
         lua_pushvalue(L, -1);
         lua_xmove(L, _curr_m->L, 1);
@@ -3458,7 +3551,9 @@ bool all_found(config_t *cfg) {
             cfg->_hp_at_trophy_check > 0 &&
             cfg->_hp_at_trophy_table > 0 &&
             cfg->_hp_at_ball_name > 0 &&
-            cfg->_hp_at_context_reset > 0
+            cfg->_hp_at_stadium_name > 0 &&
+            cfg->_hp_at_context_reset > 0 &&
+            cfg->_hp_at_set_stadium_choice > 0
         );
     }
     if (cfg->_num_minutes > 0) {
@@ -3488,7 +3583,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
         base, base + h->Misc.VirtualSize, h->Misc.VirtualSize);
     bool result(false);
 
-#define NUM_PATTERNS 16
+#define NUM_PATTERNS 18
     BYTE *frag[NUM_PATTERNS];
     frag[0] = lcpk_pattern_at_read_file;
     frag[1] = lcpk_pattern_at_get_size;
@@ -3506,6 +3601,8 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag[13] = pattern_trophy_table;
     frag[14] = pattern_ball_name;
     frag[15] = pattern_dxgi;
+    frag[16] = pattern_set_stadium_choice;
+    frag[17] = pattern_stadium_name;
     size_t frag_len[NUM_PATTERNS];
     frag_len[0] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_read_file)-1 : 0;
     frag_len[1] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_get_size)-1 : 0;
@@ -3523,6 +3620,8 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag_len[13] = _config->_lua_enabled ? sizeof(pattern_trophy_table)-1 : 0;
     frag_len[14] = _config->_lua_enabled ? sizeof(pattern_ball_name)-1 : 0;
     frag_len[15] = _config->_overlay_enabled ? sizeof(pattern_dxgi)-1 : 0;
+    frag_len[16] = _config->_lua_enabled ? sizeof(pattern_set_stadium_choice)-1 : 0;
+    frag_len[17] = _config->_lua_enabled ? sizeof(pattern_stadium_name)-1 : 0;
     int offs[NUM_PATTERNS];
     offs[0] = lcpk_offs_at_read_file;
     offs[1] = lcpk_offs_at_get_size;
@@ -3540,6 +3639,8 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     offs[13] = offs_trophy_table;
     offs[14] = offs_ball_name;
     offs[15] = offs_dxgi;
+    offs[16] = offs_set_stadium_choice;
+    offs[17] = offs_stadium_name;
     BYTE **addrs[NUM_PATTERNS];
     addrs[0] = &_config->_hp_at_read_file;
     addrs[1] = &_config->_hp_at_get_size;
@@ -3557,6 +3658,8 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     addrs[13] = &_config->_hp_at_trophy_table;
     addrs[14] = &_config->_hp_at_ball_name;
     addrs[15] = &_config->_hp_at_dxgi;
+    addrs[16] = &_config->_hp_at_set_stadium_choice;
+    addrs[17] = &_config->_hp_at_stadium_name;
 
     for (int j=0; j<NUM_PATTERNS; j++) {
         if (frag_len[j]==0) {
@@ -3612,6 +3715,8 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
             log_(L"sider_trophy_table: %p\n", sider_trophy_table_hk);
             log_(L"sider_context_reset: %p\n", sider_context_reset_hk);
             log_(L"sider_ball_name: %p\n", sider_ball_name_hk);
+            log_(L"sider_stadium_name: %p\n", sider_stadium_name_hk);
+            log_(L"sider_set_stadium_choice: %p\n", sider_set_stadium_choice_hk);
 
             if (_config->_hook_set_team_id) {
                 BYTE *check_addr = _config->_hp_at_set_team_id - offs_set_team_id + offs_check_set_team_id;
@@ -3644,6 +3749,12 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
             hook_call_with_head_and_tail(_config->_hp_at_ball_name, (BYTE*)sider_ball_name_hk,
                 (BYTE*)pattern_ball_name_head, sizeof(pattern_ball_name_head)-1,
                 (BYTE*)pattern_ball_name_tail, sizeof(pattern_ball_name_tail)-1);
+            hook_call_with_head_and_tail(_config->_hp_at_stadium_name, (BYTE*)sider_stadium_name_hk,
+                (BYTE*)pattern_stadium_name_head, sizeof(pattern_stadium_name_head)-1,
+                (BYTE*)pattern_stadium_name_tail, sizeof(pattern_stadium_name_tail)-1);
+            hook_call_with_head_and_tail(_config->_hp_at_set_stadium_choice, (BYTE*)sider_set_stadium_choice_hk,
+                (BYTE*)pattern_set_stadium_choice_head, sizeof(pattern_set_stadium_choice_head)-1,
+                (BYTE*)pattern_set_stadium_choice_tail, sizeof(pattern_set_stadium_choice_tail)-1);
             log_(L"-------------------------------\n");
         }
 

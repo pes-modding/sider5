@@ -338,6 +338,16 @@ The string needs to be in UTF-8 encoding to correctly render non-ASCII
 characters.
 
 
+-- Event name: "get_stadium_name"
+Handler function: f(ctx, stadium_name)
+Return value expected: nil or string
+
+This event fires, when the game prepares to display the stadium name.
+You handler function can change it, if it returns a string instead of nil.
+The string needs to be in UTF-8 encoding to correctly render non-ASCII
+characters.
+
+
 -- Event name: "trophy_rewrite"
 Handler function: f(ctx, tournament_id)
 Return value expected: nil or number

@@ -158,6 +158,7 @@ trophy_map_t *_trophy_map;
 WORD _tournament_id = 0xffff;
 char _ball_name[256];
 char _stadium_name[256];
+int _stadium_choice_count = 0;
 
 // home team encoded-id offset: 0x104
 // home team name offset:       0x108
@@ -2528,6 +2529,7 @@ void sider_set_team_id(DWORD *dest, DWORD *team_id_encoded, DWORD offset)
     if (_config->_lua_enabled) {
         if (is_home) {
             clear_context_fields(_context_fields, _context_fields_count);
+            _stadium_choice_count = 0;
         }
         else {
             _tournament_id = mi->tournament_id_encoded;
@@ -2601,7 +2603,7 @@ void sider_set_settings(STAD_STRUCT *dest_ss, STAD_STRUCT *src_ss)
         set_context_field_int("season", dest_ss->season);
 
         // clear stadium_choice in context
-        set_context_field_nil("stadium_choice");
+        //set_context_field_nil("stadium_choice");
         //_had_stadium_choice = false;
 
         for (i = _modules.begin(); i != _modules.end(); i++) {
@@ -2645,6 +2647,7 @@ void sider_context_reset()
 {
     clear_context_fields(_context_fields, _context_fields_count);
     _tournament_id = 0xffff;
+    _stadium_choice_count = 0;
     logu_("context reset\n");
 }
 
@@ -2699,21 +2702,24 @@ char* sider_stadium_name(char *stadium_name)
 
 void sider_set_stadium_choice(MATCH_INFO_STRUCT *mi, BYTE stadium_choice)
 {
+    _stadium_choice_count++;
     mi->stadium_choice = stadium_choice;
-    if (_config->_lua_enabled) {
-        // lua callbacks
-        list<module_t*>::iterator i;
-        for (i = _modules.begin(); i != _modules.end(); i++) {
-            module_t *m = *i;
-            BYTE new_stadium_choice;
-            if (module_set_stadium_choice(m, stadium_choice, &new_stadium_choice)) {
-                mi->stadium_choice = new_stadium_choice;
-                break;
+    if (_stadium_choice_count % 2 == 1) {
+        if (_config->_lua_enabled) {
+            // lua callbacks
+            list<module_t*>::iterator i;
+            for (i = _modules.begin(); i != _modules.end(); i++) {
+                module_t *m = *i;
+                BYTE new_stadium_choice;
+                if (module_set_stadium_choice(m, stadium_choice, &new_stadium_choice)) {
+                    mi->stadium_choice = new_stadium_choice;
+                    break;
+                }
             }
         }
+        set_context_field_int("stadium_choice", mi->stadium_choice);
+        logu_("set_stadium_choice: %d\n", mi->stadium_choice);
     }
-    set_context_field_int("stadium_choice", mi->stadium_choice);
-    logu_("set_stadium_choice: %d\n", mi->stadium_choice);
 }
 
 BYTE* get_target_location(BYTE *call_location)

@@ -278,6 +278,17 @@ next:   inc     r8
 
 sider_stadium_name_hk endp
 
+;000000014D33447D | 48 85 C0                             | test rax,rax                           |
+;000000014D334480 | 74 0D                                | je pes2019.14D33448F                   |
+;000000014D334482 | 48 89 F2                             | mov rdx,rsi                            |
+;000000014D334485 | 48 89 C1                             | mov rcx,rax                            |
+;000000014D334488 | E8 63 C4 C4 F4                       | call pes2019.141F808F0                 |
+;000000014D33448D | EB 12                                | jmp pes2019.14D3344A1                  |
+;000000014D33448F | 45 31 C0                             | xor r8d,r8d                            |
+;000000014D334492 | 48 8D 15 E9 F0 1F F5                 | lea rdx,qword ptr ds:[142533582]       |
+;000000014D334499 | 48 89 F1                             | mov rcx,rsi                            |
+;000000014D33449C | E8 6F E9 17 F3                       | call pes2019.1404B2E10                 |
+
 sider_def_stadium_name_hk proc
 
         push    rcx
@@ -319,16 +330,5 @@ sider_set_stadium_choice_hk proc
         ret
 
 sider_set_stadium_choice_hk endp
-
-;000000014D33447D | 48 85 C0                             | test rax,rax                           |
-;000000014D334480 | 74 0D                                | je pes2019.14D33448F                   |
-;000000014D334482 | 48 89 F2                             | mov rdx,rsi                            |
-;000000014D334485 | 48 89 C1                             | mov rcx,rax                            |
-;000000014D334488 | E8 63 C4 C4 F4                       | call pes2019.141F808F0                 |
-;000000014D33448D | EB 12                                | jmp pes2019.14D3344A1                  |
-;000000014D33448F | 45 31 C0                             | xor r8d,r8d                            |
-;000000014D334492 | 48 8D 15 E9 F0 1F F5                 | lea rdx,qword ptr ds:[142533582]       |
-;000000014D334499 | 48 89 F1                             | mov rcx,rsi                            |
-;000000014D33449C | E8 6F E9 17 F3                       | call pes2019.1404B2E10                 |
 
 end

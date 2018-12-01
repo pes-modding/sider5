@@ -18,6 +18,7 @@ extern sider_free_select:proc
 extern sider_trophy_table:proc
 extern sider_ball_name:proc
 extern sider_stadium_name:proc
+extern sider_def_stadium_name:proc
 extern sider_set_stadium_choice:proc
 
 .code
@@ -262,7 +263,7 @@ sider_stadium_name_hk proc
         sub     rsp,38h
         mov     [rsp+20h],rcx
         mov     [rsp+28h],rdx
-        mov     rcx,rdx
+        ;mov     rcx,rdx
         call    sider_stadium_name
         mov     rdx,rax
         mov     rcx,[rsp+20h]
@@ -276,6 +277,27 @@ next:   inc     r8
         ret
 
 sider_stadium_name_hk endp
+
+sider_def_stadium_name_hk proc
+
+        push    rcx
+        push    rdx
+        push    r8
+        push    r9
+        push    r10
+        push    r11
+        sub     rsp,28h
+        call    sider_def_stadium_name
+        add     rsp,28h
+        pop     r11
+        pop     r10
+        pop     r9
+        pop     r8
+        pop     rdx
+        pop     rcx
+        ret
+
+sider_def_stadium_name_hk endp
 
 sider_set_stadium_choice_hk proc
 
@@ -297,5 +319,16 @@ sider_set_stadium_choice_hk proc
         ret
 
 sider_set_stadium_choice_hk endp
+
+;000000014D33447D | 48 85 C0                             | test rax,rax                           |
+;000000014D334480 | 74 0D                                | je pes2019.14D33448F                   |
+;000000014D334482 | 48 89 F2                             | mov rdx,rsi                            |
+;000000014D334485 | 48 89 C1                             | mov rcx,rax                            |
+;000000014D334488 | E8 63 C4 C4 F4                       | call pes2019.141F808F0                 |
+;000000014D33448D | EB 12                                | jmp pes2019.14D3344A1                  |
+;000000014D33448F | 45 31 C0                             | xor r8d,r8d                            |
+;000000014D334492 | 48 8D 15 E9 F0 1F F5                 | lea rdx,qword ptr ds:[142533582]       |
+;000000014D334499 | 48 89 F1                             | mov rcx,rsi                            |
+;000000014D33449C | E8 6F E9 17 F3                       | call pes2019.1404B2E10                 |
 
 end

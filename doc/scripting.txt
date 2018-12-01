@@ -339,11 +339,13 @@ characters.
 
 
 -- Event name: "get_stadium_name"
-Handler function: f(ctx, stadium_name)
+Handler function: f(ctx, stadium_name, stadium_id)
 Return value expected: nil or string
 
 This event fires, when the game prepares to display the stadium name.
 You handler function can change it, if it returns a string instead of nil.
+(The "stadium_id" parameter is provided to handler function only as additional
+information - for which stadium the name is being read/modified)
 The string needs to be in UTF-8 encoding to correctly render non-ASCII
 characters.
 

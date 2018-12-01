@@ -293,4 +293,32 @@ static int offs_stadium_name = 28;
 static BYTE pattern_stadium_name_head[3] = "\x50\x50";
 static BYTE pattern_stadium_name_tail[4] = "\x58\x58\x90";
 
+/*
+000000014D33447D | 48 85 C0                             | test rax,rax                           |
+000000014D334480 | 74 0D                                | je pes2019.14D33448F                   |
+000000014D334482 | 48 89 F2                             | mov rdx,rsi                            |
+000000014D334485 | 48 89 C1                             | mov rcx,rax                            |
+000000014D334488 | E8 63 C4 C4 F4                       | call pes2019.141F808F0                 |
+000000014D33448D | EB 12                                | jmp pes2019.14D3344A1                  |
+000000014D33448F | 45 31 C0                             | xor r8d,r8d                            |
+000000014D334492 | 48 8D 15 E9 F0 1F F5                 | lea rdx,qword ptr ds:[142533582]       |
+000000014D334499 | 48 89 F1                             | mov rcx,rsi                            |
+000000014D33449C | E8 6F E9 17 F3                       | call pes2019.1404B2E10                 |
+*/
+static BYTE pattern_def_stadium_name[19] =
+    "\x48\x85\xc0"
+    "\x74\x0d"
+    "\x48\x89\xf2"
+    "\x48\x89\xc1"
+    "\xe8\x63\xc4\xc4\xf4"
+    "\xeb\x12";
+static int offs_def_stadium_name = 3;
+static BYTE pattern_def_stadium_name_head[3] = "\x75\x0c";
+static BYTE pattern_def_stadium_name_tail[15] =
+    "\x48\x8b\xd6"
+    "\x48\x8b\xc8"
+    "\xe8\x57\xc4\xc4\xf4"
+    "\xeb\x06"
+    "\x90";
+
 #endif

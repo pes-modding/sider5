@@ -2876,6 +2876,27 @@ void hook_call_rdx_with_head_and_tail(BYTE *loc, BYTE *p, BYTE *head, size_t hea
     }
 }
 
+void hook_call_rdx_with_head_and_tail_and_moved_call(BYTE *loc, BYTE *p, BYTE *head, size_t head_size, BYTE *tail, size_t tail_size, BYTE *moved_call_old, BYTE* moved_call_new) {
+    if (!loc) {
+        return;
+    }
+    DWORD protection = 0 ;
+    DWORD newProtection = PAGE_EXECUTE_READWRITE;
+    if (VirtualProtect(loc, head_size + 12 + tail_size, newProtection, &protection)) {
+        int old_call_offs = *(int*)(moved_call_old + 1);
+        memcpy(loc, head, head_size);   // head code
+        memcpy(loc+head_size, "\x48\xba", 2);
+        memcpy(loc+head_size+2, &p, sizeof(BYTE*));  // mov rdx,<target_addr>
+        memcpy(loc+head_size+10, "\xff\xd2", 2);     // call rdx
+        memcpy(loc+head_size+12, tail, tail_size);   // tail code
+
+        int new_call_offs = old_call_offs - (int)(moved_call_new - moved_call_old);
+        *(int*)(moved_call_new + 1) = new_call_offs;
+
+        log_(L"hook_call_rdx_with_head_and_tail_and_moved_call: hooked at %p (target: %p)\n", loc, p);
+    }
+}
+
 static int sider_context_register(lua_State *L)
 {
     const char *event_key = luaL_checkstring(L, 1);
@@ -3790,9 +3811,14 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
             hook_call_with_head_and_tail(_config->_hp_at_set_stadium_choice, (BYTE*)sider_set_stadium_choice_hk,
                 (BYTE*)pattern_set_stadium_choice_head, sizeof(pattern_set_stadium_choice_head)-1,
                 (BYTE*)pattern_set_stadium_choice_tail, sizeof(pattern_set_stadium_choice_tail)-1);
-            hook_call_rdx_with_head_and_tail(_config->_hp_at_def_stadium_name, (BYTE*)sider_def_stadium_name_hk,
+
+            BYTE *old_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_old;
+            BYTE *new_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_new;
+            hook_call_rdx_with_head_and_tail_and_moved_call(
+                _config->_hp_at_def_stadium_name, (BYTE*)sider_def_stadium_name_hk,
                 (BYTE*)pattern_def_stadium_name_head, sizeof(pattern_def_stadium_name_head)-1,
-                (BYTE*)pattern_def_stadium_name_tail, sizeof(pattern_def_stadium_name_tail)-1);
+                (BYTE*)pattern_def_stadium_name_tail, sizeof(pattern_def_stadium_name_tail)-1,
+                old_moved_call, new_moved_call);
             log_(L"-------------------------------\n");
         }
 

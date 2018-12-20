@@ -711,9 +711,9 @@ public:
             L"overlay.on-from-start", _overlay_on_from_start,
             config_ini);
 
-        _overlay_controlled_by_gamepad = GetPrivateProfileInt(_section_name.c_str(),
-            L"overlay.gamepad.enabled", _overlay_controlled_by_gamepad,
-            config_ini);
+        //_overlay_controlled_by_gamepad = GetPrivateProfileInt(_section_name.c_str(),
+        //    L"overlay.gamepad.enabled", _overlay_controlled_by_gamepad,
+        //    config_ini);
 
         _overlay_font_size = GetPrivateProfileInt(_section_name.c_str(),
             L"overlay.font-size", _overlay_font_size,
@@ -3530,7 +3530,7 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"free.side.select = %d\n", _config->_free_side_select);
     log_(L"overlay.enabled = %d\n", _config->_overlay_enabled);
     log_(L"overlay.on-from-start = %d\n", _config->_overlay_on_from_start);
-    log_(L"overlay.gamepad.enabled = %d\n", _config->_overlay_controlled_by_gamepad);
+    //log_(L"overlay.gamepad.enabled = %d\n", _config->_overlay_controlled_by_gamepad);
     log_(L"overlay.font = %s\n", _config->_overlay_font.c_str());
     log_(L"overlay.text-color = 0x%08x\n", _config->_overlay_text_color);
     log_(L"overlay.background-color = 0x%08x\n", _config->_overlay_background_color);

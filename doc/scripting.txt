@@ -1,7 +1,7 @@
 Sider 5 Lua Module Programmers Guide
 ====================================
-For sider.dll version: 5.1.1
-September 26, 2018
+For sider.dll version: 5.1.2
+December 19, 2018
 
 
 
@@ -104,7 +104,7 @@ of the game. As more scripts/modules are created by the community
 the context object will probably also change, and include more and more
 information about the game.
 
-As of 5.1.1 release, the context object has the following:
+As of 5.1.2 release, the context object has the following:
 
 ctx.home_team  - id of the home team of the current match, after
                  it is selected in the exhibition match, or the next
@@ -265,6 +265,27 @@ function returns an integer, then this value will be used as the match
 time in minutes. This way you can accelerate or slow down the matches
 beyound the allowed 5-30 minute range. See timeaccel.lua - for an example
 of such script.
+
+
+- Event name: "set_stadium_choice"
+Handler function: f(ctx, stadium_id)
+Return value expected: nil or stadium_id
+
+This event fires, when the game prepares to display the stadium image
+or when it is entering pre-game menus of non-exhibition modes. In addition
+to the actual id of the stadium chosen, the "stadium_id" parameter may have
+the following special values:
+    253 : "home stadium"
+    254 : "random stadium"
+
+You handler function can change it, if it returns an integer value instead of nil.
+This integer value can either be a stadium id, or one of the following special
+values, mentioned above.
+
+NOTE: the final stadium selection isn't actually made, until after the
+"set_stadium" event. So, if you want to change the stadium, or see what
+was eventually chosen as random/home stadium, then you will need to also register
+for the "set_stadium" event.
 
 
 - Event name: "set_stadium"

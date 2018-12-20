@@ -2,6 +2,12 @@ Sider 5 Release History
 =======================
 
 
+December 19, 2018
+v5.1.2
+- new Lua events to support stadium manipulation:
+  "set_stadium_choice" and "get_stadium_name"
+
+
 September 26, 2018
 v5.1.1
 - support for PES2019.exe Version 1.01.03

@@ -3851,7 +3851,10 @@ void init_direct_input()
 {
     // initialize DirectInput
     g_IDirectInput8 = NULL;
-    if (_config->_overlay_controlled_by_gamepad && SUCCEEDED(DirectInput8Create(
+    if (!_config->_overlay_controlled_by_gamepad) {
+        return;
+    }
+    if (SUCCEEDED(DirectInput8Create(
         myHDLL, DIRECTINPUT_VERSION, IID_IDirectInput8,
         (void**)&g_IDirectInput8, NULL))) {
         logu_("g_IDirectInput8 = %p\n", g_IDirectInput8);

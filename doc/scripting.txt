@@ -1,7 +1,7 @@
 Sider 5 Lua Module Programmers Guide
 ====================================
-For sider.dll version: 5.1.2
-December 19, 2018
+For sider.dll version: 5.1.3
+February 7, 2019
 
 
 
@@ -104,7 +104,7 @@ of the game. As more scripts/modules are created by the community
 the context object will probably also change, and include more and more
 information about the game.
 
-As of 5.1.2 release, the context object has the following:
+As of 5.1.3 release, the context object has the following:
 
 ctx.home_team  - id of the home team of the current match, after
                  it is selected in the exhibition match, or the next

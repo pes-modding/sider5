@@ -98,6 +98,11 @@ static int offs_check_set_team_id = -2;
 static BYTE pattern_set_settings[17] =
     "\x8b\x82\x98\x00\x00\x00"
     "\x89\x81\x98\x00\x00\x00"
+    "\x48\x8b\xc1"
+    "\xc3";
+static BYTE pattern2_set_settings[17] =
+    "\x8b\x82\x98\x00\x00\x00"
+    "\x89\x81\x98\x00\x00\x00"
     "\x48\x89\xc8"
     "\xc3";
 static int offs_set_settings = -13;

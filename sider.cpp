@@ -3634,7 +3634,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
         base, base + h->Misc.VirtualSize, h->Misc.VirtualSize);
     bool result(false);
 
-#define NUM_PATTERNS 19
+#define NUM_PATTERNS 20
     BYTE *frag[NUM_PATTERNS];
     frag[0] = lcpk_pattern_at_read_file;
     frag[1] = lcpk_pattern_at_get_size;
@@ -3655,6 +3655,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag[16] = pattern_set_stadium_choice;
     frag[17] = pattern_stadium_name;
     frag[18] = pattern_def_stadium_name;
+    frag[19] = pattern2_set_settings;
     size_t frag_len[NUM_PATTERNS];
     frag_len[0] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_read_file)-1 : 0;
     frag_len[1] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_get_size)-1 : 0;
@@ -3675,6 +3676,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     frag_len[16] = _config->_lua_enabled ? sizeof(pattern_set_stadium_choice)-1 : 0;
     frag_len[17] = _config->_lua_enabled ? sizeof(pattern_stadium_name)-1 : 0;
     frag_len[18] = _config->_lua_enabled ? sizeof(pattern_def_stadium_name)-1 : 0;
+    frag_len[19] = _config->_lua_enabled ? sizeof(pattern2_set_settings)-1 : 0;
     int offs[NUM_PATTERNS];
     offs[0] = lcpk_offs_at_read_file;
     offs[1] = lcpk_offs_at_get_size;
@@ -3695,6 +3697,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     offs[16] = offs_set_stadium_choice;
     offs[17] = offs_stadium_name;
     offs[18] = offs_def_stadium_name;
+    offs[19] = offs_set_settings;
     BYTE **addrs[NUM_PATTERNS];
     addrs[0] = &_config->_hp_at_read_file;
     addrs[1] = &_config->_hp_at_get_size;
@@ -3715,6 +3718,7 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
     addrs[16] = &_config->_hp_at_set_stadium_choice;
     addrs[17] = &_config->_hp_at_stadium_name;
     addrs[18] = &_config->_hp_at_def_stadium_name;
+    addrs[19] = &_config->_hp_at_set_settings;
 
     for (int j=0; j<NUM_PATTERNS; j++) {
         if (frag_len[j]==0) {

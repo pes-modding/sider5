@@ -3130,6 +3130,13 @@ static void push_env_table(lua_State *L, const wchar_t *script_name)
     lua_pushvalue(L, 3);
     lua_setfield(L, -2, "fileutil");
 
+    // rebind io.open to fileutil.open
+    lua_getfield(L, -1, "io");
+    lua_getfield(L, -2, "fileutil");
+    lua_getfield(L, -1, "open");
+    lua_setfield(L, -3, "open");
+    lua_pop(L,2);
+
     /*
     // gameplay lib
     init_gameplay_lib(L);

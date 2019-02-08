@@ -30,7 +30,7 @@ function m.open(filename, mode, ...)
         C.MultiByteToWideChar(code_page, 0, ffi.cast('char*',mode), #mode, mode_lp, #mode);
         local f = C._wfopen(long_path, mode_lp)
         if not f then
-            error(string.format('unable to open for writing: %s', filename))
+            return nil, string.format('unable to open for writing: %s', filename)
         end
         C.fclose(f)
     end
@@ -38,7 +38,7 @@ function m.open(filename, mode, ...)
     local short_path = ffi.new(string.format('uint32_t[%s]',c_count+2),{})
     c_count = C.GetShortPathNameW(long_path, short_path, c_count)
     if c_count == 0 then
-        error(string.format('unable to open: %s', filename))
+        return nil, string.format('unable to open: %s', filename)
     end
 
     local new_utf8_str = ffi.new(string.format('char[%s]',c_count*2+1),{})

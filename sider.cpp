@@ -14,6 +14,7 @@
 #include "common.h"
 #include "patterns.h"
 #include "memlib.h"
+#include "fileutil.h"
 
 #include "d3d11.h"
 #include "d3dcompiler.h"
@@ -3125,6 +3126,10 @@ static void push_env_table(lua_State *L, const wchar_t *script_name)
     lua_pushvalue(L, 2);
     lua_setfield(L, -2, "memory");
 
+    // fileutil lib
+    lua_pushvalue(L, 3);
+    lua_setfield(L, -2, "fileutil");
+
     /*
     // gameplay lib
     init_gameplay_lib(L);
@@ -3172,6 +3177,9 @@ void init_lua_support()
 
         // memory library
         init_memlib(L);
+
+        // fileutil library
+        init_fileutil(L);
 
         // load registered modules
         for (list<wstring>::iterator it = _config->_module_names.begin();

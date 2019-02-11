@@ -92,12 +92,13 @@ static IOFileUD *io_file_open(lua_State *L, const char *mode)
   int n, wn;
   wchar_t *wide_fname;
   wchar_t *wide_mode;
-  /* convert filename to wide-char */
+  /* try convert filename to wide-char */
   n = (int)strlen(fname);
   wn = MultiByteToWideChar(code_page, 0, fname, n, NULL, 0);
   if (wn == 0) {
-    iof->fp = NULL;
-    luaL_argerror(L, 1, lj_str_pushf(L, "%s: %s", fname, "filename is not a valid UTF-8 string"));
+    iof->fp = fopen(fname, mode);
+    if (iof->fp == NULL)
+      luaL_argerror(L, 1, lj_str_pushf(L, "%s: %s", fname, strerror(errno)));
     return iof;
   }
   wide_fname = (wchar_t*)calloc((wn+1)*sizeof(wchar_t),1);
@@ -450,13 +451,12 @@ LJLIB_CF(io_open)
   int n, wn;
   wchar_t *wide_fname;
   wchar_t *wide_mode;
-  /* convert filename to wide-char */
+  /* try to convert filename to wide-char */
   n = (int)strlen(fname);
   wn = MultiByteToWideChar(code_page, 0, fname, n, NULL, 0);
   if (wn == 0) {
-    iof->fp = NULL;
-    luaL_argerror(L, 1, lj_str_pushf(L, "%s: %s", fname, "filename is not a valid UTF-8 string"));
-    return luaL_fileresult(L, 0, fname);
+    iof->fp = fopen(fname, mode);
+    return iof->fp != NULL ? 1 : luaL_fileresult(L, 0, fname);
   }
   wide_fname = (wchar_t*)calloc((wn+1)*sizeof(wchar_t),1);
   MultiByteToWideChar(code_page, 0, fname, n, wide_fname, wn);

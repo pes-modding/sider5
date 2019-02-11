@@ -14,7 +14,6 @@
 #include "common.h"
 #include "patterns.h"
 #include "memlib.h"
-#include "fileutil.h"
 
 #include "d3d11.h"
 #include "d3dcompiler.h"
@@ -424,7 +423,6 @@ public:
     bool _lookup_cache_enabled;
     bool _lua_enabled;
     bool _luajit_extensions_enabled;
-    bool _rebind_io_open;
     list<wstring> _lua_extra_globals;
     int _lua_gc_opt;
     int _dll_mapping_option;
@@ -488,7 +486,6 @@ public:
                  _lookup_cache_enabled(true),
                  _lua_enabled(true),
                  _luajit_extensions_enabled(false),
-                 _rebind_io_open(true),
                  _lua_gc_opt(LUA_GCSTEP),
                  _close_sider_on_exit(false),
                  _start_minimized(false),
@@ -740,10 +737,6 @@ public:
 
         _luajit_extensions_enabled = GetPrivateProfileInt(_section_name.c_str(),
             L"luajit.ext.enabled", _luajit_extensions_enabled,
-            config_ini);
-
-        _rebind_io_open = GetPrivateProfileInt(_section_name.c_str(),
-            L"rebind.io.open", _rebind_io_open,
             config_ini);
 
         _key_cache_ttl_sec = GetPrivateProfileInt(_section_name.c_str(),
@@ -3132,19 +3125,6 @@ static void push_env_table(lua_State *L, const wchar_t *script_name)
     lua_pushvalue(L, 2);
     lua_setfield(L, -2, "memory");
 
-    // fileutil lib
-    lua_pushvalue(L, 3);
-    lua_setfield(L, -2, "fileutil");
-
-    // rebind io.open to fileutil.open
-    if (_config->_rebind_io_open) {
-        lua_getfield(L, -1, "io");
-        lua_getfield(L, -2, "fileutil");
-        lua_getfield(L, -1, "open");
-        lua_setfield(L, -3, "open");
-        lua_pop(L,2);
-    }
-
     /*
     // gameplay lib
     init_gameplay_lib(L);
@@ -3192,9 +3172,6 @@ void init_lua_support()
 
         // memory library
         init_memlib(L);
-
-        // fileutil library
-        init_fileutil(L);
 
         // load registered modules
         for (list<wstring>::iterator it = _config->_module_names.begin();
@@ -3546,7 +3523,6 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"lua.enabled = %d\n", _config->_lua_enabled);
     log_(L"lua.gc.opt = %s\n", (_config->_lua_gc_opt == LUA_GCSTEP)? L"step" : L"collect");
     log_(L"luajit.ext.enabled = %d\n", _config->_luajit_extensions_enabled);
-    log_(L"rebind.io.open = %d\n", _config->_rebind_io_open);
     //log_(L"address-cache.enabled = %d\n", (int)(!_config->_ac_off));
     log_(L"key-cache.ttl-sec = %d\n", _config->_key_cache_ttl_sec);
     log_(L"rewrite-cache.ttl-sec = %d\n", _config->_rewrite_cache_ttl_sec);

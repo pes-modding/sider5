@@ -2278,6 +2278,10 @@ void draw_ui(float right_margin)
         vp.TopLeftY = _overlay_image.vmargin;
         vp.Width = _overlay_image.width;
         vp.Height = _overlay_image.height;
+        if (_config->_overlay_location == 1) {
+            // overlay at the bottom
+            vp.TopLeftY = DX11.Height - _overlay_image.height - _overlay_image.vmargin*2;
+        }
         DX11.Context->RSSetViewports(1, &vp);
         DX11.Context->OMSetRenderTargets(1, &g_pRenderTargetView, NULL);
 

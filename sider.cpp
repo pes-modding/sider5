@@ -1625,13 +1625,17 @@ void module_overlay_on(module_t *m, char **text, char **image_path, int *image_w
                 strncat(_overlay_utf8_image_path, s, sizeof(_overlay_utf8_image_path)-1);
                 *image_path = _overlay_utf8_image_path;
             }
-            if (lua_isnumber(L, -1)) {
-                double value = lua_tonumber(L, -1);
-                *image_width = value;
-                if (value < 1.0f) {
-                    // treat as screen-width percentage
-                    *image_width = DX11.Width * value;
+            if (lua_istable(L, -1)) {
+                lua_getfield(L, -1, "image_width");
+                if (lua_isnumber(L, -1)) {
+                    double value = lua_tonumber(L, -1);
+                    *image_width = value; // width in pixels
+                    if (value < 1.0f) {
+                        // treat as screen-width percentage
+                        *image_width = DX11.Width * value;
+                    }
                 }
+                lua_pop(L, 1);
             }
             lua_pop(L, 3);
         }
@@ -2473,7 +2477,9 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
                                     _overlay_image.width = (image_width == 0) ?
                                         min(desc.Width, DX11.Width * 0.1) :  // default width
                                         image_width;
-                                    _overlay_image.height = image_width * (desc.Height / desc.Width);
+                                    _overlay_image.height = image_width * ((double)desc.Height / desc.Width);
+                                    DBG(128) logu_("on-screen pixels-width: %d\n", _overlay_image.width);
+                                    DBG(128) logu_("on-screen pixels-height: %d\n", _overlay_image.height);
                                 }
                                 break;
                             default:
@@ -4337,6 +4343,9 @@ LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam)
         if (wParam == _config->_overlay_vkey_toggle && ((lParam & 0x80000000) != 0)) {
             _overlay_on = !_overlay_on;
             DBG(64) logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
+            if (_overlay_on) {
+                _overlay_image.to_clear = true;
+            }
         }
         else if (wParam == _config->_vkey_reload_2 && ((lParam & 0x80000000) != 0)) {
             if (_reload_1_down) {

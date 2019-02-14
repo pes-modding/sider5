@@ -232,6 +232,8 @@ struct overlay_image_t {
     int source_height;
     int width;
     int height;
+    int vmargin;
+    int hmargin;
     char *filepath;
 };
 
@@ -368,7 +370,7 @@ char *g_strTexPS =
     "float4 PStex( PS_INPUT input) : SV_Target\n"
     "{\n"
     "    float4 clr = tx2D.Sample( samLinear, input.Tex.xy );\n"
-    "    //clr.a = min(0.4f, clr.a);\n"
+    "    clr.a = min(%0.3f, clr.a);\n"
     "    return clr;\n"
     "    //return float4(input.Tex.x,input.Tex.y,0.0f,0.4f);\n"
     "    //return float4(1.0f,0.0f,0.0f,0.4f);\n"
@@ -466,6 +468,7 @@ char _overlay_utf8_image_path[1024];
 
 #define DEFAULT_OVERLAY_TEXT_COLOR 0xc080ff80
 #define DEFAULT_OVERLAY_BACKGROUND_COLOR 0x80102010
+#define DEFAULT_OVERLAY_IMAGE_ALPHA 1.0f
 #define DEFAULT_OVERLAY_FONT L"Arial"
 #define DEFAULT_OVERLAY_FONT_SIZE 0
 #define DEFAULT_OVERLAY_LOCATION 0
@@ -527,6 +530,7 @@ public:
     wstring _overlay_font;
     DWORD _overlay_text_color;
     DWORD _overlay_background_color;
+    float _overlay_image_alpha;
     int _overlay_location;
     int _overlay_font_size;
     int _overlay_vkey_toggle;
@@ -581,6 +585,7 @@ public:
                  _overlay_font(DEFAULT_OVERLAY_FONT),
                  _overlay_text_color(DEFAULT_OVERLAY_TEXT_COLOR),
                  _overlay_background_color(DEFAULT_OVERLAY_BACKGROUND_COLOR),
+                 _overlay_image_alpha(DEFAULT_OVERLAY_IMAGE_ALPHA),
                  _overlay_font_size(DEFAULT_OVERLAY_FONT_SIZE),
                  _overlay_location(DEFAULT_OVERLAY_LOCATION),
                  _overlay_vkey_toggle(DEFAULT_OVERLAY_VKEY_TOGGLE),
@@ -671,6 +676,12 @@ public:
                     if (swscanf(value.substr(6,2).c_str(), L"%x", &c)==1) { v = v | (c << 24); }
                     else if (swscanf(value.substr(6,2).c_str(), L"%X", &c)==1) { v = v | (c << 24); }
                     _overlay_background_color = v;
+                }
+            }
+            else if (wcscmp(L"overlay.image-alpha", key.c_str())==0) {
+                float alpha = 1.0f;
+                if (swscanf(value.c_str(),L"%f",&alpha)==1) {
+                    _overlay_image_alpha = min(1.0f, max(0.0f, alpha));
                 }
             }
             else if (wcscmp(L"overlay.location", key.c_str())==0) {
@@ -1584,11 +1595,13 @@ char *module_stadium_name(module_t *m, char *name, BYTE stadium_id)
     return res;
 }
 
-void module_overlay_on(module_t *m, char **text, char **image_path, int *image_width)
+void module_overlay_on(module_t *m, char **text, char **image_path, int *image_width, int *image_hmargin, int *image_vmargin)
 {
     *text = NULL;
     *image_path = NULL;
     *image_width = 0;
+    *image_hmargin = 10;
+    *image_vmargin = 10;
     if (m->evt_overlay_on != 0) {
         EnterCriticalSection(&_cs);
         // garbage collection
@@ -1634,6 +1647,16 @@ void module_overlay_on(module_t *m, char **text, char **image_path, int *image_w
                         // treat as screen-width percentage
                         *image_width = DX11.Width * value;
                     }
+                }
+                lua_pop(L, 1);
+                lua_getfield(L, -1, "image_hmargin");
+                if (lua_isnumber(L, -1)) {
+                    *image_hmargin = lua_tointeger(L, -1); // hmargin in pixels
+                }
+                lua_pop(L, 1);
+                lua_getfield(L, -1, "image_vmargin");
+                if (lua_isnumber(L, -1)) {
+                    *image_vmargin = lua_tointeger(L, -1); // vmargin in pixels
                 }
                 lua_pop(L, 1);
             }
@@ -1987,7 +2010,9 @@ void prep_stuff()
 
     // Compile and create another pixel shader
     pBlobPS = NULL;
-    hr = D3DCompile(g_strTexPS, strlen(g_strTexPS) + 1, "PStex", NULL, NULL, "PStex",
+    memset(pixel_shader, 0, sizeof(pixel_shader));
+    sprintf(pixel_shader, g_strTexPS, _config->_overlay_image_alpha);
+    hr = D3DCompile(pixel_shader, strlen(pixel_shader) + 1, "PStex", NULL, NULL, "PStex",
         "ps_4_0", dwShaderFlags, 0, &pBlobPS, &pBlobError);
     if (FAILED(hr))
     {
@@ -2102,6 +2127,11 @@ void prep_ui(float font_size, float right_margin)
     float height = rect.Bottom;
     if (height < 0) { height = DX11.Height + height; }
     float rel_height = (height + rect.Top) / DX11.Height + 0.005;
+
+    if (_overlay_image.have && _overlay_image.height > 0) {
+        float rel_image_height = ((float)_overlay_image.height + _overlay_image.vmargin*2) / DX11.Height;
+        rel_height = max(rel_height, rel_image_height);
+    }
     //logu_("rel_height: %0.2f\n", rel_height);
 
     SimpleVertex *vertices = g_vertices;
@@ -2244,8 +2274,8 @@ void draw_ui(float right_margin)
         DX11.Context->PSSetShaderResources( 0, 1, &g_textureView );
         DX11.Context->PSSetSamplers( 0, 1, &g_pSamplerLinear );
 
-        vp.TopLeftX = rc.right - rc.left - _overlay_image.width - 10;
-        vp.TopLeftY = 10;
+        vp.TopLeftX = rc.right - rc.left - _overlay_image.width - _overlay_image.hmargin;
+        vp.TopLeftY = _overlay_image.vmargin;
         vp.Width = _overlay_image.width;
         vp.Height = _overlay_image.height;
         DX11.Context->RSSetViewports(1, &vp);
@@ -2420,8 +2450,10 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
             if (_curr_overlay_m != _modules.end()) {
                 char *image_path = NULL;
                 int image_width = 0;
+                int image_hmargin;
+                int image_vmargin;
                 module_t *m = *_curr_overlay_m;
-                module_overlay_on(m, &text, &image_path, &image_width);
+                module_overlay_on(m, &text, &image_path, &image_width, &image_hmargin, &image_vmargin);
                 if (text) {
                     wchar_t *ws = Utf8::utf8ToUnicode((BYTE*)text);
                     wcscpy(_current_overlay_text, ws);
@@ -2478,6 +2510,8 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
                                         min(desc.Width, DX11.Width * 0.1) :  // default width
                                         image_width;
                                     _overlay_image.height = image_width * ((double)desc.Height / desc.Width);
+                                    _overlay_image.hmargin = image_hmargin;
+                                    _overlay_image.vmargin = image_vmargin;
                                     DBG(128) logu_("on-screen pixels-width: %d\n", _overlay_image.width);
                                     DBG(128) logu_("on-screen pixels-height: %d\n", _overlay_image.height);
                                 }
@@ -2499,7 +2533,7 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
                     clear_overlay_texture();
                 }
 
-                float right_margin = (_overlay_image.have) ? _overlay_image.width + 20 : 0.0f;
+                float right_margin = (_overlay_image.have) ? _overlay_image.width + _overlay_image.hmargin*2 : 5.0f;
 
                 // render overlay
                 DX11.Device->GetImmediateContext(&DX11.Context);
@@ -3841,6 +3875,7 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"overlay.font = %s\n", _config->_overlay_font.c_str());
     log_(L"overlay.text-color = 0x%08x\n", _config->_overlay_text_color);
     log_(L"overlay.background-color = 0x%08x\n", _config->_overlay_background_color);
+    log_(L"overlay.image-alpha = %03f\n", _config->_overlay_image_alpha);
     log_(L"overlay.location = %d\n", _config->_overlay_location);
     log_(L"overlay.font-size = %d\n", _config->_overlay_font_size);
     log_(L"overlay.vkey.toggle = 0x%02x\n", _config->_overlay_vkey_toggle);

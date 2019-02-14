@@ -15,10 +15,14 @@
 #include "patterns.h"
 #include "memlib.h"
 
+#define DIRECTINPUT_VERSION 0x0800
+#define SAFE_RELEASE(x) if (x) { x->Release(); x = NULL; }
+
 #include "d3d11.h"
 #include "d3dcompiler.h"
 #include "FW1FontWrapper.h"
 #include "dinput.h"
+#include "DDSTextureLoader.h"
 
 #include "lua.hpp"
 #include "lauxlib.h"
@@ -217,6 +221,21 @@ void init_direct_input();
 ID3D11Device *_device(NULL);
 ID3D11DeviceContext *_device_context(NULL);
 IDXGISwapChain *_swap_chain(NULL);
+ID3D11Resource *g_texture(NULL);
+ID3D11ShaderResourceView *g_textureView(NULL);
+ID3D11SamplerState *g_pSamplerLinear(NULL);
+
+struct overlay_image_t {
+    bool to_clear;
+    bool have;
+    int source_width;
+    int source_height;
+    int width;
+    int height;
+    char *filepath;
+};
+
+overlay_image_t _overlay_image;
 
 struct dx11_t {
     ID3D11Device *Device;
@@ -250,6 +269,17 @@ struct SimpleVertex {
     float z;
 };
 
+struct TexturedVertex {
+    float x;
+    float y;
+    float z;
+    float w;
+    float tx;
+    float ty;
+    float tz;
+    float tw;
+};
+
 SimpleVertex g_vertices_bottom[] =
 {
     -1.0f, -1.0f, 0.5f,
@@ -259,6 +289,7 @@ SimpleVertex g_vertices_bottom[] =
     -1.0f, -0.8f, 0.5f,
     1.0f, -0.8f, 0.5f,
 };
+
 SimpleVertex g_vertices[] =
 {
     -1.0f, 1.0f, 0.5f,
@@ -269,13 +300,28 @@ SimpleVertex g_vertices[] =
     -1.0f, 1.0f, 0.5f,
 };
 
+static const TexturedVertex g_texVertices[] =
+{
+    { -1.f, 1.f, 0.4f, 1.f, 0.f, 0.f, 0.f, 0.f },
+    { 1.f, 1.f, 0.4f, 1.f, 1.f, 0.f, 0.f, 0.f },
+    { 1.f, -1.f, 0.4f, 1.f, 1.f, 1.f, 0.f, 0.f },
+    { 1.f, -1.f, 0.4f, 1.f, 1.f, 1.f, 0.f, 0.f },
+    { -1.f, -1.f, 0.4f, 1.f, 0.f, 1.f, 0.f, 0.f },
+    { -1.f, 1.f, 0.4f, 1.f, 0.f, 0.f, 0.f, 0.f },
+};
+
 ID3D11BlendState* g_pBlendState = NULL;
 ID3D11InputLayout*          g_pInputLayout = NULL;
+ID3D11InputLayout*          g_pTexInputLayout = NULL;
 ID3D11Buffer*               g_pVertexBuffer = NULL;
+ID3D11Buffer*               g_pTexVertexBuffer = NULL;
 ID3D11RenderTargetView*     g_pRenderTargetView = NULL;
 ID3D11VertexShader*         g_pVertexShader = NULL;
+ID3D11VertexShader*         g_pTexVertexShader = NULL;
 ID3D11PixelShader*          g_pPixelShader = NULL;
+ID3D11PixelShader*          g_pTexPixelShader = NULL;
 HRESULT hr = S_OK;
+
 char* g_strVS =
     "void VS( in float4 posIn : POSITION,\n"
     "         out float4 posOut : SV_Position )\n"
@@ -284,10 +330,48 @@ char* g_strVS =
     "    posOut = posIn;\n"
     "}\n";
 
+char* g_strTexVS =
+    "struct VS_INPUT\n"
+    "{\n"
+    "    float4 Pos : POSITION;\n"
+    "    float4 Tex : TEXCOORD0;\n"
+    "};\n"
+    "struct PS_INPUT\n"
+    "{\n"
+    "    float4 Pos : SV_POSITION;\n"
+    "    float4 Tex : TEXCOORD0;\n"
+    "};\n"
+    "PS_INPUT VStex( VS_INPUT input )\n"
+    "{\n"
+    "    PS_INPUT output = (PS_INPUT)0;\n"
+    "    output.Pos = input.Pos;\n"
+    "    output.Tex = input.Tex;\n"
+    "    return output;\n"
+    "}\n";
+
 char* g_strPS =
     "void PS( out float4 colorOut : SV_Target )\n"
     "{\n"
     "    colorOut = float4( %0.2f, %0.2f, %0.2f, %0.2f );\n"
+    "}\n";
+
+char *g_strTexPS =
+    "Texture2D tx2D : register( t0 );\n"
+    "SamplerState samLinear : register( s0 );\n"
+    "\n"
+    "struct PS_INPUT\n"
+    "{\n"
+    "    float4 Pos : SV_POSITION;\n"
+    "    float4 Tex : TEXCOORD0;\n"
+    "};\n"
+    "\n"
+    "float4 PStex( PS_INPUT input) : SV_Target\n"
+    "{\n"
+    "    float4 clr = tx2D.Sample( samLinear, input.Tex.xy );\n"
+    "    //clr.a = min(0.4f, clr.a);\n"
+    "    return clr;\n"
+    "    //return float4(input.Tex.x,input.Tex.y,0.0f,0.4f);\n"
+    "    //return float4(1.0f,0.0f,0.0f,0.4f);\n"
     "}\n";
 
 extern "C" BOOL sider_read_file(
@@ -378,6 +462,7 @@ wstring _overlay_header;
 wchar_t _overlay_text[1024];
 wchar_t _current_overlay_text[1024] = L"hello world!";
 char _overlay_utf8_text[1024];
+char _overlay_utf8_image_path[1024];
 
 #define DEFAULT_OVERLAY_TEXT_COLOR 0xc080ff80
 #define DEFAULT_OVERLAY_BACKGROUND_COLOR 0x80102010
@@ -1499,9 +1584,11 @@ char *module_stadium_name(module_t *m, char *name, BYTE stadium_id)
     return res;
 }
 
-char *module_overlay_on(module_t *m)
+void module_overlay_on(module_t *m, char **text, char **image_path, int *image_width)
 {
-    char *res = NULL;
+    *text = NULL;
+    *image_path = NULL;
+    *image_width = 0;
     if (m->evt_overlay_on != 0) {
         EnterCriticalSection(&_cs);
         // garbage collection
@@ -1510,28 +1597,46 @@ char *module_overlay_on(module_t *m)
         lua_xmove(m->L, L, 1);
         // push params
         lua_pushvalue(L, 1); // ctx
-        if (lua_pcall(L, 1, 1, 0) != LUA_OK) {
+        if (lua_pcall(L, 1, 3, 0) != LUA_OK) {
             const char *err = luaL_checkstring(L, -1);
             logu_("[%d] lua ERROR in overlay_on: %s\n", GetCurrentThreadId(), err);
+            lua_pop(L, 1);
         }
-        else if (lua_isstring(L, -1)) {
-            const char *s = luaL_checkstring(L, -1);
-            _overlay_utf8_text[0] = '\0';
-            strncat(_overlay_utf8_text, s, sizeof(_overlay_utf8_text)-1);
-            res = _overlay_utf8_text;
-            // strip any trailing whitespace
-            if (s[0] != '\0') {
-                char *p = res + strlen(res) - 1;
-                while ((p >= res) && ((p[0] == '\r') || (p[0] == '\n') || (p[0] == ' '))) {
-                    p[0] = '\0';
-                    p--;
+        else {
+            // check return values
+            if (lua_isstring(L, -3)) {
+                const char *s = luaL_checkstring(L, -3);
+                _overlay_utf8_text[0] = '\0';
+                strncat(_overlay_utf8_text, s, sizeof(_overlay_utf8_text)-1);
+                *text = _overlay_utf8_text;
+                // strip any trailing whitespace
+                char *res = *text;
+                if (s[0] != '\0') {
+                    char *p = res + strlen(res) - 1;
+                    while ((p >= res) && ((p[0] == '\r') || (p[0] == '\n') || (p[0] == ' '))) {
+                        p[0] = '\0';
+                        p--;
+                    }
                 }
             }
+            if (lua_isstring(L, -2)) {
+                const char *s = luaL_checkstring(L, -2);
+                _overlay_utf8_image_path[0] = '\0';
+                strncat(_overlay_utf8_image_path, s, sizeof(_overlay_utf8_image_path)-1);
+                *image_path = _overlay_utf8_image_path;
+            }
+            if (lua_isnumber(L, -1)) {
+                double value = lua_tonumber(L, -1);
+                *image_width = value;
+                if (value < 1.0f) {
+                    // treat as screen-width percentage
+                    *image_width = DX11.Width * value;
+                }
+            }
+            lua_pop(L, 3);
         }
-        lua_pop(L, 1);
         LeaveCriticalSection(&_cs);
     }
-    return res;
 }
 
 char *module_key_down(module_t *m, int vkey)
@@ -1819,6 +1924,24 @@ void prep_stuff()
     }
     hr = DX11.Device->CreateVertexShader(pBlobVS->GetBufferPointer(), pBlobVS->GetBufferSize(),
         NULL, &g_pVertexShader);
+
+    ID3D10Blob* pBlobTexVS = NULL;
+    ID3D10Blob* pBlobTexError = NULL;
+    hr = D3DCompile(g_strTexVS, lstrlenA(g_strTexVS) + 1, "VStex", NULL, NULL, "VStex",
+        "vs_4_0", dwShaderFlags, 0, &pBlobTexVS, &pBlobTexError);
+    if (FAILED(hr))
+    {
+        if (pBlobError != NULL)
+        {
+            logu_((char*)pBlobError->GetBufferPointer());
+            pBlobTexError->Release();
+        }
+        logu_("D3DCompile failed\n");
+        return;
+    }
+    hr = DX11.Device->CreateVertexShader(pBlobTexVS->GetBufferPointer(), pBlobTexVS->GetBufferSize(),
+        NULL, &g_pTexVertexShader);
+
 /*
 #include "vshader.h"
     logu_("creating vertex shader from array of %d bytes\n", sizeof(g_siderVS));
@@ -1857,6 +1980,29 @@ void prep_stuff()
         return;
     }
     pBlobPS->Release();
+
+    // Compile and create another pixel shader
+    pBlobPS = NULL;
+    hr = D3DCompile(g_strTexPS, strlen(g_strTexPS) + 1, "PStex", NULL, NULL, "PStex",
+        "ps_4_0", dwShaderFlags, 0, &pBlobPS, &pBlobError);
+    if (FAILED(hr))
+    {
+        if (pBlobError != NULL)
+        {
+            logu_((char*)pBlobError->GetBufferPointer());
+            pBlobError->Release();
+        }
+        logu_("D3DCompile failed\n");
+        return;
+    }
+    hr = DX11.Device->CreatePixelShader(pBlobPS->GetBufferPointer(), pBlobPS->GetBufferSize(),
+        NULL, &g_pTexPixelShader);
+    if (FAILED(hr)) {
+        logu_("DX11.Device->CreatePixelShader failed\n");
+        return;
+    }
+    pBlobPS->Release();
+
 /*
 #include "pshader.h"
     logu_("creating pixel shader from array of %d bytes\n", sizeof(g_siderPS));
@@ -1873,17 +2019,44 @@ void prep_stuff()
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, D3D11_APPEND_ALIGNED_ELEMENT, D3D11_INPUT_PER_VERTEX_DATA, 0 },
     };
     UINT numElements = _countof(elements);
-
     hr = DX11.Device->CreateInputLayout(elements, numElements, pBlobVS->GetBufferPointer(),
         pBlobVS->GetBufferSize(), &g_pInputLayout);
-/*
-    hr = DX11.Device->CreateInputLayout(elements, numElements, g_siderVS, sizeof(g_siderVS), &g_pInputLayout);
-*/
     if (FAILED(hr)) {
         logu_("DX11.Device->CreateInputLayout failed\n");
         return;
     }
+
+    // Create the input layout for texture
+    D3D11_INPUT_ELEMENT_DESC layout[] =
+    {
+        { "POSITION", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+        { "TEXCOORD", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, sizeof(float)*4, D3D11_INPUT_PER_VERTEX_DATA, 0 },
+    };
+    numElements = _countof(layout);
+    hr = DX11.Device->CreateInputLayout(layout, numElements, pBlobTexVS->GetBufferPointer(),
+        pBlobTexVS->GetBufferSize(), &g_pTexInputLayout);
+    if (FAILED(hr)) {
+        logu_("DX11.Device->CreateInputLayout failed\n");
+        return;
+    }
+
     pBlobVS->Release();
+    pBlobTexVS->Release();
+
+    // Create the state objects
+    D3D11_SAMPLER_DESC sampDesc = {};
+    sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+    sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
+    sampDesc.ComparisonFunc = D3D11_COMPARISON_NEVER;
+    sampDesc.MinLOD = 0;
+    sampDesc.MaxLOD = D3D11_FLOAT32_MAX;
+    hr = DX11.Device->CreateSamplerState( &sampDesc, &g_pSamplerLinear );
+    if (FAILED(hr)) {
+        logu_("DX11.Device->CreateSamplerState failed\n");
+        return;
+    }
 
     D3D11_BLEND_DESC BlendState;
     ZeroMemory(&BlendState, sizeof(D3D11_BLEND_DESC));
@@ -1907,7 +2080,7 @@ void prep_stuff()
     logu_("prep done successfully!\n");
 }
 
-void prep_text(float font_size)
+void prep_ui(float font_size, float right_margin)
 {
     swprintf(_overlay_text, L"%s | %s | %s", _overlay_header.c_str(), (*_curr_overlay_m)->filename->c_str(), _current_overlay_text);
     UINT flags = 0; //FW1_RESTORESTATE;
@@ -1918,7 +2091,7 @@ void prep_text(float font_size)
     FW1_RECTF rectIn;
     rectIn.Left = 5.0f;
     rectIn.Top = 0.0f;
-    rectIn.Right = DX11.Width-5.0f;
+    rectIn.Right = DX11.Width - right_margin;
     rectIn.Bottom = DX11.Height;
 	FW1_RECTF rect = g_pFontWrapper->MeasureString(_overlay_text, _config->_overlay_font.c_str(), font_size, &rectIn, flags);
     //logu_("rect: %0.2f,%0.2f,%0.2f,%0.2f\n", rect.Left,rect.Top,rect.Right,rect.Bottom);
@@ -1941,23 +2114,44 @@ void prep_text(float font_size)
         vertices[5].y = -1.0f + rel_height*2.0;
     }
 
-    D3D11_BUFFER_DESC bd;
-    bd.Usage = D3D11_USAGE_DEFAULT;
-    bd.ByteWidth = sizeof(g_vertices);
-    bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
-    bd.CPUAccessFlags = 0;
-    bd.MiscFlags = 0;
-    bd.StructureByteStride = 0;
-    D3D11_SUBRESOURCE_DATA initData;
-    initData.pSysMem = vertices;
-    hr = DX11.Device->CreateBuffer(&bd, &initData, &g_pVertexBuffer);
-    if (FAILED(hr)) {
-        logu_("DX11.Device->CreateBuffer failed\n");
-        return;
+    // overlay
+    {
+        D3D11_BUFFER_DESC bd;
+        bd.Usage = D3D11_USAGE_DEFAULT;
+        bd.ByteWidth = sizeof(g_vertices);
+        bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        bd.CPUAccessFlags = 0;
+        bd.MiscFlags = 0;
+        bd.StructureByteStride = 0;
+        D3D11_SUBRESOURCE_DATA initData;
+        initData.pSysMem = vertices;
+        hr = DX11.Device->CreateBuffer(&bd, &initData, &g_pVertexBuffer);
+        if (FAILED(hr)) {
+            logu_("DX11.Device->CreateBuffer failed (for overlay)\n");
+            return;
+        }
+    }
+
+    // image
+    if (_overlay_image.have) {
+        D3D11_BUFFER_DESC bd;
+        bd.Usage = D3D11_USAGE_DEFAULT;
+        bd.ByteWidth = sizeof(g_texVertices);
+        bd.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        bd.CPUAccessFlags = 0;
+        bd.MiscFlags = 0;
+        bd.StructureByteStride = 0;
+        D3D11_SUBRESOURCE_DATA initData;
+        initData.pSysMem = g_texVertices;
+        hr = DX11.Device->CreateBuffer(&bd, &initData, &g_pTexVertexBuffer);
+        if (FAILED(hr)) {
+            logu_("DX11.Device->CreateBuffer failed (for image)\n");
+            return;
+        }
     }
 }
 
-void draw_text(float font_size)
+void draw_text(float font_size, float right_margin)
 {
     UINT flags = FW1_RESTORESTATE;
     //FLOAT y = DX11.Height*0.0f;
@@ -1969,7 +2163,7 @@ void draw_text(float font_size)
     FW1_RECTF rectIn;
     rectIn.Left = 5.0f;
     rectIn.Top = 0.0f;
-    rectIn.Right = DX11.Width-5.0f;
+    rectIn.Right = DX11.Width - right_margin;
     rectIn.Bottom = DX11.Height;
 
 	g_pFontWrapper->DrawString(
@@ -1988,7 +2182,7 @@ void draw_text(float font_size)
 	//pFW1Factory->Release();
 }
 
-void draw_simple_test()
+void draw_ui(float right_margin)
 {
     // Create the render target view
     ID3D11Texture2D* pRenderTargetTexture;
@@ -2006,19 +2200,6 @@ void draw_simple_test()
     }
     pRenderTargetTexture->Release();
 
-    // draw
-    DX11.Context->IASetInputLayout(g_pInputLayout);
-
-    UINT stride = sizeof(SimpleVertex);
-    UINT offset = 0;
-    DX11.Context->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
-
-    DX11.Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-    DX11.Context->VSSetShader(g_pVertexShader, NULL, 0);
-
-    DX11.Context->PSSetShader(g_pPixelShader, NULL, 0);
-
     RECT rc;
     GetClientRect(DX11.Window, &rc);
     D3D11_VIEWPORT vp;
@@ -2028,15 +2209,56 @@ void draw_simple_test()
     vp.MaxDepth = 1.0f;
     vp.TopLeftX = 0;
     vp.TopLeftY = 0;
+
+    // draw overlay background
+    {
+        DX11.Context->IASetInputLayout(g_pInputLayout);
+
+        UINT stride = sizeof(SimpleVertex);
+        UINT offset = 0;
+        DX11.Context->IASetVertexBuffers(0, 1, &g_pVertexBuffer, &stride, &offset);
+        DX11.Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        DX11.Context->VSSetShader(g_pVertexShader, NULL, 0);
+        DX11.Context->PSSetShader(g_pPixelShader, NULL, 0);
+
+        DX11.Context->RSSetViewports(1, &vp);
+        DX11.Context->OMSetRenderTargets(1, &g_pRenderTargetView, NULL);
+        DX11.Context->OMSetBlendState(g_pBlendState, NULL, 0xffffffff);
+        DX11.Context->Draw(6, 0); //6 vertices start at 0
+    }
+
+    // draw texture
+    if (_overlay_image.have) {
+        DX11.Context->IASetInputLayout(g_pTexInputLayout);
+
+        UINT stride = sizeof(TexturedVertex);
+        UINT offset = 0;
+        DX11.Context->IASetVertexBuffers(0, 1, &g_pTexVertexBuffer, &stride, &offset);
+        DX11.Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        DX11.Context->VSSetShader(g_pTexVertexShader, NULL, 0);
+        DX11.Context->PSSetShader(g_pTexPixelShader, NULL, 0);
+        DX11.Context->PSSetShaderResources( 0, 1, &g_textureView );
+        DX11.Context->PSSetSamplers( 0, 1, &g_pSamplerLinear );
+
+        vp.TopLeftX = rc.right - rc.left - _overlay_image.width - 10;
+        vp.TopLeftY = 10;
+        vp.Width = _overlay_image.width;
+        vp.Height = _overlay_image.height;
+        DX11.Context->RSSetViewports(1, &vp);
+        DX11.Context->OMSetRenderTargets(1, &g_pRenderTargetView, NULL);
+
+        //float bf [4] = {1.0f, 1.0f, 1.0f, 1.0f};
+        DX11.Context->OMSetBlendState(g_pBlendState, NULL, 0xffffffff);
+        DX11.Context->Draw(6, 0); //6 vertices start at 0
+    }
+
+    // text
+    vp.TopLeftX = 0;
+    vp.TopLeftY = 0;
+    vp.Width = rc.right - rc.left;
+    vp.Height = rc.bottom - rc.top;
     DX11.Context->RSSetViewports(1, &vp);
-
-    DX11.Context->OMSetRenderTargets(1, &g_pRenderTargetView, NULL);
-
-    DX11.Context->OMSetBlendState(g_pBlendState, NULL, 0xffffffff);
-
-    DX11.Context->Draw(6, 0); //4 vertices start at 0
-
-    draw_text(_font_size);
+    draw_text(_font_size, right_margin);
 
     //cleanup
     g_pRenderTargetView->Release();
@@ -2065,7 +2287,15 @@ void sider_switch_overlay_to_next_module()
                 }
             }
         }
+        _overlay_image.to_clear = true;
     }
+}
+
+void clear_overlay_texture() {
+    SAFE_RELEASE(g_texture);
+    SAFE_RELEASE(g_textureView);
+    if (_overlay_image.filepath) { free(_overlay_image.filepath); }
+    memset(&_overlay_image, 0, sizeof(overlay_image_t));
 }
 
 HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
@@ -2079,6 +2309,7 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
     }
 
     if (_reload_modified) {
+        clear_overlay_texture();
         lua_reload_modified_modules();
         _reload_modified = false;
     }
@@ -2183,8 +2414,10 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
         if (_config->_lua_enabled) {
             // lua callbacks
             if (_curr_overlay_m != _modules.end()) {
+                char *image_path = NULL;
+                int image_width = 0;
                 module_t *m = *_curr_overlay_m;
-                text = module_overlay_on(m);
+                module_overlay_on(m, &text, &image_path, &image_width);
                 if (text) {
                     wchar_t *ws = Utf8::utf8ToUnicode((BYTE*)text);
                     wcscpy(_current_overlay_text, ws);
@@ -2195,11 +2428,79 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
                     _current_overlay_text[0] = L'\0';
                 }
 
+                if (_overlay_image.to_clear) {
+                    clear_overlay_texture();
+                }
+
+                if (image_path != NULL) {
+                    if (!_overlay_image.filepath || strcmp(image_path, _overlay_image.filepath)!=0) {
+                        // load image into texture
+                        SAFE_RELEASE(g_texture);
+                        SAFE_RELEASE(g_textureView);
+                        _overlay_image.filepath = strdup(image_path);
+
+                        wchar_t *ws = Utf8::utf8ToUnicode((BYTE*)image_path);
+                        HRESULT hr = DirectX::CreateDDSTextureFromFile(
+                            DX11.Device,
+                            ws,
+                            &g_texture,
+                            &g_textureView);
+                        Utf8::free(ws);
+                        if (SUCCEEDED(hr)) {
+                            DBG(128) logu_("Loaded 2D texture: {%s}\n", _overlay_image.filepath);
+                            _overlay_image.have = true;
+
+                            D3D11_RESOURCE_DIMENSION resType = D3D11_RESOURCE_DIMENSION_UNKNOWN;
+                            g_texture->GetType( &resType );
+
+                            switch( resType )
+                            {
+                            case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
+                                {
+                                    ID3D11Texture2D* tex = (ID3D11Texture2D*)g_texture;
+                                    D3D11_TEXTURE2D_DESC desc;
+                                    tex->GetDesc(&desc);
+
+                                    // This is a 2D texture. Check values of desc here
+                                    DBG(128) logu_("texture Width: %d\n", desc.Width);
+                                    DBG(128) logu_("texture Height: %d\n", desc.Height);
+                                    DBG(128) logu_("texture MipLevels: %d\n", desc.MipLevels);
+                                    DBG(128) logu_("texture ArraySize: %d\n", desc.ArraySize);
+                                    DBG(128) logu_("texture Format: %d\n", desc.Format);
+                                    _overlay_image.source_width = desc.Width;
+                                    _overlay_image.source_height = desc.Height;
+
+                                    _overlay_image.width = (image_width == 0) ?
+                                        min(desc.Width, DX11.Width * 0.1) :  // default width
+                                        image_width;
+                                    _overlay_image.height = image_width * (desc.Height / desc.Width);
+                                }
+                                break;
+                            default:
+                                logu_("PROBLEM: Not a 2D texture: {%s}\n", _overlay_image.filepath);
+                                if (_overlay_image.filepath) { free(_overlay_image.filepath); }
+                                _overlay_image.have = false;
+                            }
+                        }
+                        else {
+                            logu_("PROBLEM: Cannot load texture from: {%s}\n", _overlay_image.filepath);
+                            _overlay_image.have = false;
+                        }
+                    }
+                }
+                else {
+                    // image_path is NULL, so clear the image
+                    clear_overlay_texture();
+                }
+
+                float right_margin = (_overlay_image.have) ? _overlay_image.width + 20 : 0.0f;
+
                 // render overlay
                 DX11.Device->GetImmediateContext(&DX11.Context);
-                prep_text(_font_size);
-                draw_simple_test();
-                g_pVertexBuffer->Release();
+                prep_ui(_font_size, right_margin);
+                draw_ui(right_margin);
+                SAFE_RELEASE(g_pVertexBuffer);
+                SAFE_RELEASE(g_pTexVertexBuffer);
                 DX11.Context->Release();
             }
         }
@@ -3958,6 +4259,8 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
                 memset(_overlay_text, 0, sizeof(_overlay_text));
                 memset(_current_overlay_text, 0, sizeof(_current_overlay_text));
                 memset(_overlay_utf8_text, 0, sizeof(_overlay_utf8_text));
+                memset(_overlay_utf8_image_path, 0, sizeof(_overlay_utf8_image_path));
+                memset(&_overlay_image, 0, sizeof(overlay_image_t));
 
                 install_func(NULL);
 

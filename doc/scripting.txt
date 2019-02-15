@@ -389,7 +389,7 @@ Handler function: f(ctx)
 Return values expected: string, string, table
 
 All return values can be nil, and also the handler may return three or two,
-or one, or no return values at all.
+or one, or not return anything at all.
 1st return value: text to display
 2nd return value: full filename of the image to display
 3rd return value: table with layout options

@@ -282,23 +282,13 @@ struct TexturedVertex {
     float tw;
 };
 
-SimpleVertex g_vertices_bottom[] =
-{
-    -1.0f, -1.0f, 0.5f,
-    1.0f, -0.8f, 0.5f,
-    1.0f, -1.0f, 0.5f,
-    -1.0f, -1.0f, 0.5f,
-    -1.0f, -0.8f, 0.5f,
-    1.0f, -0.8f, 0.5f,
-};
-
 SimpleVertex g_vertices[] =
 {
     -1.0f, 1.0f, 0.5f,
     1.0f, 1.0f, 0.5f,
-    1.0f, 0.8f, 0.5f,
-    1.0f, 0.8f, 0.5f,
-    -1.0f, 0.8f, 0.5f,
+    1.0f, -1.0f, 0.5f,
+    1.0f, -1.0f, 0.5f,
+    -1.0f, -1.0f, 0.5f,
     -1.0f, 1.0f, 0.5f,
 };
 
@@ -2109,7 +2099,7 @@ void prep_stuff()
     logu_("prep done successfully!\n");
 }
 
-void prep_ui(float font_size, float right_margin)
+int prep_ui(float font_size, float right_margin)
 {
     swprintf(_overlay_text, L"%s | %s | %s", _overlay_header.c_str(), (*_curr_overlay_m)->filename->c_str(), _current_overlay_text);
     UINT flags = 0; //FW1_RESTORESTATE;
@@ -2133,20 +2123,7 @@ void prep_ui(float font_size, float right_margin)
         rel_height = max(rel_height, rel_image_height);
     }
     //logu_("rel_height: %0.2f\n", rel_height);
-
-    SimpleVertex *vertices = g_vertices;
-    if (_config->_overlay_location == 0) {
-        vertices[2].y = 1.0f - rel_height*2.0;
-        vertices[3].y = 1.0f - rel_height*2.0;
-        vertices[4].y = 1.0f - rel_height*2.0;
-    }
-    else {
-        // bottom
-        vertices = g_vertices_bottom;
-        vertices[1].y = -1.0f + rel_height*2.0;
-        vertices[4].y = -1.0f + rel_height*2.0;
-        vertices[5].y = -1.0f + rel_height*2.0;
-    }
+    int pixel_height = rel_height * DX11.Height;
 
     // overlay
     {
@@ -2158,11 +2135,11 @@ void prep_ui(float font_size, float right_margin)
         bd.MiscFlags = 0;
         bd.StructureByteStride = 0;
         D3D11_SUBRESOURCE_DATA initData;
-        initData.pSysMem = vertices;
+        initData.pSysMem = g_vertices;
         hr = DX11.Device->CreateBuffer(&bd, &initData, &g_pVertexBuffer);
         if (FAILED(hr)) {
             logu_("DX11.Device->CreateBuffer failed (for overlay)\n");
-            return;
+            return 0;
         }
     }
 
@@ -2180,9 +2157,11 @@ void prep_ui(float font_size, float right_margin)
         hr = DX11.Device->CreateBuffer(&bd, &initData, &g_pTexVertexBuffer);
         if (FAILED(hr)) {
             logu_("DX11.Device->CreateBuffer failed (for image)\n");
-            return;
+            return 0;
         }
     }
+
+    return pixel_height;
 }
 
 void draw_text(float font_size, float right_margin)
@@ -2190,7 +2169,7 @@ void draw_text(float font_size, float right_margin)
     UINT flags = FW1_RESTORESTATE;
     //FLOAT y = DX11.Height*0.0f;
     if (_config->_overlay_location == 1) {
-        flags |= FW1_BOTTOM;
+        //flags |= FW1_BOTTOM;
         //y = DX11.Height*1.0f;
     }
 
@@ -2216,7 +2195,7 @@ void draw_text(float font_size, float right_margin)
 	//pFW1Factory->Release();
 }
 
-void draw_ui(float right_margin)
+void draw_ui(float top, float bottom, float right_margin)
 {
     // Create the render target view
     ID3D11Texture2D* pRenderTargetTexture;
@@ -2236,13 +2215,6 @@ void draw_ui(float right_margin)
 
     RECT rc;
     GetClientRect(DX11.Window, &rc);
-    D3D11_VIEWPORT vp;
-    vp.Width = (FLOAT)(rc.right - rc.left);
-    vp.Height = (FLOAT)(rc.bottom - rc.top);
-    vp.MinDepth = 0.0f;
-    vp.MaxDepth = 1.0f;
-    vp.TopLeftX = 0;
-    vp.TopLeftY = 0;
 
     // draw overlay background
     {
@@ -2254,6 +2226,14 @@ void draw_ui(float right_margin)
         DX11.Context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         DX11.Context->VSSetShader(g_pVertexShader, NULL, 0);
         DX11.Context->PSSetShader(g_pPixelShader, NULL, 0);
+
+        D3D11_VIEWPORT vp;
+        vp.Width = (FLOAT)(rc.right - rc.left);
+        vp.Height = (FLOAT)(bottom - top);
+        vp.MinDepth = 0.0f;
+        vp.MaxDepth = 1.0f;
+        vp.TopLeftX = 0;
+        vp.TopLeftY = top;
 
         DX11.Context->RSSetViewports(1, &vp);
         DX11.Context->OMSetRenderTargets(1, &g_pRenderTargetView, NULL);
@@ -2274,14 +2254,13 @@ void draw_ui(float right_margin)
         DX11.Context->PSSetShaderResources( 0, 1, &g_textureView );
         DX11.Context->PSSetSamplers( 0, 1, &g_pSamplerLinear );
 
+        D3D11_VIEWPORT vp;
+        vp.MinDepth = 0.0f;
+        vp.MaxDepth = 1.0f;
         vp.TopLeftX = rc.right - rc.left - _overlay_image.width - _overlay_image.hmargin;
-        vp.TopLeftY = _overlay_image.vmargin;
+        vp.TopLeftY = top + _overlay_image.vmargin;
         vp.Width = _overlay_image.width;
         vp.Height = _overlay_image.height;
-        if (_config->_overlay_location == 1) {
-            // overlay at the bottom
-            vp.TopLeftY = DX11.Height - _overlay_image.height - _overlay_image.vmargin*2;
-        }
         DX11.Context->RSSetViewports(1, &vp);
         DX11.Context->OMSetRenderTargets(1, &g_pRenderTargetView, NULL);
 
@@ -2291,12 +2270,17 @@ void draw_ui(float right_margin)
     }
 
     // text
-    vp.TopLeftX = 0;
-    vp.TopLeftY = 0;
-    vp.Width = rc.right - rc.left;
-    vp.Height = rc.bottom - rc.top;
-    DX11.Context->RSSetViewports(1, &vp);
-    draw_text(_font_size, right_margin);
+    {
+        D3D11_VIEWPORT vp;
+        vp.MinDepth = 0.0f;
+        vp.MaxDepth = 1.0f;
+        vp.TopLeftX = 0;
+        vp.TopLeftY = top;
+        vp.Width = rc.right - rc.left;
+        vp.Height = bottom - top;
+        DX11.Context->RSSetViewports(1, &vp);
+        draw_text(_font_size, right_margin);
+    }
 
     //cleanup
     g_pRenderTargetView->Release();
@@ -2541,8 +2525,11 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
 
                 // render overlay
                 DX11.Device->GetImmediateContext(&DX11.Context);
-                prep_ui(_font_size, right_margin);
-                draw_ui(right_margin);
+                int pixel_height = prep_ui(_font_size, right_margin);
+                if (pixel_height > 0) {
+                    float top = (_config->_overlay_location == 0) ? 0 : DX11.Height - pixel_height;
+                    draw_ui(top, top + pixel_height, right_margin);
+                }
                 SAFE_RELEASE(g_pVertexBuffer);
                 SAFE_RELEASE(g_pTexVertexBuffer);
                 DX11.Context->Release();

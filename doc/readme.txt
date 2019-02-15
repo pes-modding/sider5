@@ -1,7 +1,7 @@
 Sider 5 for Pro Evolution Soccer 2019
 =====================================
-Copyright (C) 2018 juce
-Version 5.1.3
+Copyright (C) 2018-2019 juce
+Version 5.1.4
 
 
 
@@ -192,6 +192,13 @@ overlay.text-color = "80ff80c0"
 
 - colors are specified in RRGGBBAA format (similar to how it is
 done in HTML, except that you do not put '#' character in front)
+
+
+overlay.image-alpha = 0.8
+
+- alpha channel for the image displayed in the overlay (if there is one)
+The accepted range of values are: [0.0 - 1.0] : from full transparent
+to fully opaque.
 
 
 vkey.reload-1 = 0x10

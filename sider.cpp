@@ -23,6 +23,7 @@
 #include "FW1FontWrapper.h"
 #include "dinput.h"
 #include "DDSTextureLoader.h"
+#include "WICTextureLoader.h"
 
 #include "lua.hpp"
 #include "lauxlib.h"
@@ -2492,12 +2493,15 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
                         SAFE_RELEASE(g_textureView);
                         _overlay_image.filepath = strdup(image_path);
 
+                        HRESULT hr;
                         wchar_t *ws = Utf8::utf8ToUnicode((BYTE*)image_path);
-                        HRESULT hr = DirectX::CreateDDSTextureFromFile(
-                            DX11.Device,
-                            ws,
-                            &g_texture,
-                            &g_textureView);
+                        if (memcmp(".dds", image_path+strlen(image_path)-4, 4)==0) {
+                            hr = DirectX::CreateDDSTextureFromFile(DX11.Device, ws, &g_texture, &g_textureView);
+                        }
+                        else {
+                            // try other supported formats
+                            hr = DirectX::CreateWICTextureFromFile(DX11.Device, ws, &g_texture, &g_textureView);
+                        }
                         Utf8::free(ws);
                         if (SUCCEEDED(hr)) {
                             DBG(128) logu_("Loaded 2D texture: {%s}\n", _overlay_image.filepath);

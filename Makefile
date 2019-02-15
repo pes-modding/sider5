@@ -17,7 +17,7 @@ ZLIBDLL=soft\zlib123-dll\zlib1.dll
 # 4731: warning about ebp modification
 CFLAGS=/nologo /Od /EHsc /wd4731 $(EXTRA_CFLAGS)
 LFLAGS=/NOLOGO
-LIBS=user32.lib gdi32.lib comctl32.lib version.lib
+LIBS=user32.lib gdi32.lib comctl32.lib version.lib ole32.lib
 LIBSDLL=pngdib.obj libpng.a zdll.lib $(LIBS)
 
 LUAINC=/I soft\LuaJIT-2.0.5\src
@@ -55,6 +55,7 @@ $(FW1LIBPATH)\$(FW1LIB):
 	cd $(FW1LIBROOT) && msbuild /p:Configuration=Release
 
 DDSTextureLoader.obj: DDSTextureLoader.cpp DDSTextureLoader.h
+WICTextureLoader.obj: WICTextureLoader.cpp WICTextureLoader.h
 
 util.obj: util.asm
 	ml64 /c util.asm
@@ -66,8 +67,8 @@ pshader.h: pshader.hlsl
 	fxc /E siderPS /Ges /T ps_4_0 /Fh pshader.h pshader.hlsl
 
 sider.obj: sider.cpp sider.h patterns.h common.h imageutil.h vshader.h pshader.h
-sider.dll: sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj DDSTextureLoader.obj sider.res $(LUALIBPATH)\$(LUALIB) $(FW1LIBPATH)\$(FW1LIB)
-	$(LINK) $(LFLAGS) /out:sider.dll /DLL sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj DDSTextureLoader.obj sider.res /LIBPATH:$(LUALIBPATH) /LIBPATH:$(FW1LIBPATH) $(LIBS) $(LUALIB) $(FW1LIB) /LIBPATH:"$(LIB)"
+sider.dll: sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj DDSTextureLoader.obj WICTextureLoader.obj sider.res $(LUALIBPATH)\$(LUALIB) $(FW1LIBPATH)\$(FW1LIB)
+	$(LINK) $(LFLAGS) /out:sider.dll /DLL sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj DDSTextureLoader.obj WICTextureLoader.obj sider.res /LIBPATH:$(LUALIBPATH) /LIBPATH:$(FW1LIBPATH) $(LIBS) $(LUALIB) $(FW1LIB) /LIBPATH:"$(LIB)"
 
 sider.exe: main.obj sider.dll sider_main.res $(LUADLL)
 	$(LINK) $(LFLAGS) /out:sider.exe main.obj sider_main.res $(LIBS) sider.lib /LIBPATH:"$(LIB)"

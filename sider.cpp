@@ -237,6 +237,17 @@ struct overlay_image_t {
     char *filepath;
 };
 
+struct layout_t {
+    int image_width;
+    int image_height;
+    bool has_image_ar;
+    bool has_image_hmargin;
+    bool has_image_vmargin;
+    float image_aspect_ratio;
+    float image_hmargin;
+    float image_vmargin;
+};
+
 overlay_image_t _overlay_image;
 
 struct dx11_t {
@@ -1585,13 +1596,10 @@ char *module_stadium_name(module_t *m, char *name, BYTE stadium_id)
     return res;
 }
 
-void module_overlay_on(module_t *m, char **text, char **image_path, int *image_width, int *image_hmargin, int *image_vmargin)
+void module_overlay_on(module_t *m, char **text, char **image_path, struct layout_t *opts)
 {
     *text = NULL;
     *image_path = NULL;
-    *image_width = 0;
-    *image_hmargin = 10;
-    *image_vmargin = 10;
     if (m->evt_overlay_on != 0) {
         EnterCriticalSection(&_cs);
         // garbage collection
@@ -1632,21 +1640,40 @@ void module_overlay_on(module_t *m, char **text, char **image_path, int *image_w
                 lua_getfield(L, -1, "image_width");
                 if (lua_isnumber(L, -1)) {
                     double value = lua_tonumber(L, -1);
-                    *image_width = value; // width in pixels
+                    opts->image_width = value; // width in pixels
                     if (value < 1.0f) {
                         // treat as screen-width percentage
-                        *image_width = DX11.Width * value;
+                        opts->image_width = DX11.Width * value;
                     }
+                }
+                lua_pop(L, 1);
+                lua_getfield(L, -1, "image_height");
+                if (lua_isnumber(L, -1)) {
+                    double value = lua_tonumber(L, -1);
+                    opts->image_height = value; // height in pixels
+                    if (value < 1.0f) {
+                        // treat as screen-height percentage
+                        opts->image_height = DX11.Height * value;
+                    }
+                }
+                lua_pop(L, 1);
+                lua_getfield(L, -1, "image_aspect_ratio");
+                if (lua_isnumber(L, -1)) {
+                    double value = lua_tonumber(L, -1);
+                    opts->image_aspect_ratio = value;
+                    opts->has_image_ar = true;
                 }
                 lua_pop(L, 1);
                 lua_getfield(L, -1, "image_hmargin");
                 if (lua_isnumber(L, -1)) {
-                    *image_hmargin = lua_tointeger(L, -1); // hmargin in pixels
+                    opts->image_hmargin = lua_tointeger(L, -1); // hmargin in pixels
+                    opts->has_image_hmargin = true;
                 }
                 lua_pop(L, 1);
                 lua_getfield(L, -1, "image_vmargin");
                 if (lua_isnumber(L, -1)) {
-                    *image_vmargin = lua_tointeger(L, -1); // vmargin in pixels
+                    opts->image_vmargin = lua_tointeger(L, -1); // vmargin in pixels
+                    opts->has_image_vmargin = true;
                 }
                 lua_pop(L, 1);
             }
@@ -2437,11 +2464,13 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
             // lua callbacks
             if (_curr_overlay_m != _modules.end()) {
                 char *image_path = NULL;
+                layout_t opts;
+                memset(&opts, 0, sizeof(layout_t));
                 int image_width = 0;
                 int image_hmargin;
                 int image_vmargin;
                 module_t *m = *_curr_overlay_m;
-                module_overlay_on(m, &text, &image_path, &image_width, &image_hmargin, &image_vmargin);
+                module_overlay_on(m, &text, &image_path, &opts);
                 if (text) {
                     wchar_t *ws = Utf8::utf8ToUnicode((BYTE*)text);
                     wcscpy(_current_overlay_text, ws);
@@ -2494,12 +2523,46 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
                                     _overlay_image.source_width = desc.Width;
                                     _overlay_image.source_height = desc.Height;
 
-                                    _overlay_image.width = (image_width == 0) ?
-                                        min(desc.Width, DX11.Width * 0.1) :  // default width
-                                        image_width;
-                                    _overlay_image.height = image_width * ((double)desc.Height / desc.Width);
-                                    _overlay_image.hmargin = image_hmargin;
-                                    _overlay_image.vmargin = image_vmargin;
+                                    // calculate dimensions based on two of:
+                                    // opts.image_width, opts.image_height, opts.image_aspect_ratio
+                                    // if not enough info: use default width of 0.1*screen-width and source image aspect ratio
+                                    if (opts.image_width > 0) {
+                                        _overlay_image.width = opts.image_width;
+                                        if (opts.image_height > 0) {
+                                            _overlay_image.height = opts.image_height;
+                                        }
+                                        else if (opts.has_image_ar) {
+                                            _overlay_image.height = _overlay_image.width / opts.image_aspect_ratio;
+                                        }
+                                        else {
+                                            _overlay_image.height = _overlay_image.width * ((double)desc.Height / desc.Width);
+                                        }
+                                    }
+                                    else {
+                                        // width is not specified
+                                        if (opts.image_height > 0) {
+                                            _overlay_image.height = opts.image_height;
+                                            if (opts.has_image_ar) {
+                                                _overlay_image.width = _overlay_image.height * opts.image_aspect_ratio;
+                                            }
+                                            else {
+                                                _overlay_image.width = _overlay_image.height * ((double)desc.Width / desc.Height);
+                                            }
+                                        }
+                                        else {
+                                            // neither width nor height specified
+                                            _overlay_image.width = min(desc.Width, DX11.Width * 0.1);
+                                            if (opts.has_image_ar) {
+                                                _overlay_image.height = _overlay_image.width / opts.image_aspect_ratio;
+                                            }
+                                            else {
+                                                _overlay_image.height = _overlay_image.width * ((double)desc.Height / desc.Width);
+                                            }
+                                        }
+                                    }
+
+                                    _overlay_image.hmargin = (opts.has_image_hmargin) ? opts.image_hmargin : 10.0f;
+                                    _overlay_image.vmargin = (opts.has_image_vmargin) ? opts.image_vmargin : 10.0f;
                                     DBG(128) logu_("on-screen pixels-width: %d\n", _overlay_image.width);
                                     DBG(128) logu_("on-screen pixels-height: %d\n", _overlay_image.height);
                                 }

@@ -2,8 +2,9 @@ Sider 5 Release History
 =======================
 
 
-February 14, 2019
+February 17, 2019
 v5.1.4
+- bug-fix for "3-subs-only" problem
 - added support for rendering an image in overlay
 - tweak to luajit io library to use wide-char filenames
 

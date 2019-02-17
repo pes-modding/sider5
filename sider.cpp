@@ -470,7 +470,7 @@ char _overlay_utf8_image_path[1024];
 
 #define DEFAULT_OVERLAY_TEXT_COLOR 0xc080ff80
 #define DEFAULT_OVERLAY_BACKGROUND_COLOR 0x80102010
-#define DEFAULT_OVERLAY_IMAGE_ALPHA 1.0f
+#define DEFAULT_OVERLAY_IMAGE_ALPHA_MAX 1.0f
 #define DEFAULT_OVERLAY_FONT L"Arial"
 #define DEFAULT_OVERLAY_FONT_SIZE 0
 #define DEFAULT_OVERLAY_LOCATION 0
@@ -532,7 +532,7 @@ public:
     wstring _overlay_font;
     DWORD _overlay_text_color;
     DWORD _overlay_background_color;
-    float _overlay_image_alpha;
+    float _overlay_image_alpha_max;
     int _overlay_location;
     int _overlay_font_size;
     int _overlay_vkey_toggle;
@@ -587,7 +587,7 @@ public:
                  _overlay_font(DEFAULT_OVERLAY_FONT),
                  _overlay_text_color(DEFAULT_OVERLAY_TEXT_COLOR),
                  _overlay_background_color(DEFAULT_OVERLAY_BACKGROUND_COLOR),
-                 _overlay_image_alpha(DEFAULT_OVERLAY_IMAGE_ALPHA),
+                 _overlay_image_alpha_max(DEFAULT_OVERLAY_IMAGE_ALPHA_MAX),
                  _overlay_font_size(DEFAULT_OVERLAY_FONT_SIZE),
                  _overlay_location(DEFAULT_OVERLAY_LOCATION),
                  _overlay_vkey_toggle(DEFAULT_OVERLAY_VKEY_TOGGLE),
@@ -680,10 +680,10 @@ public:
                     _overlay_background_color = v;
                 }
             }
-            else if (wcscmp(L"overlay.image-alpha", key.c_str())==0) {
+            else if (wcscmp(L"overlay.image-alpha-max", key.c_str())==0) {
                 float alpha = 1.0f;
                 if (swscanf(value.c_str(),L"%f",&alpha)==1) {
-                    _overlay_image_alpha = min(1.0f, max(0.0f, alpha));
+                    _overlay_image_alpha_max = min(1.0f, max(0.0f, alpha));
                 }
             }
             else if (wcscmp(L"overlay.location", key.c_str())==0) {
@@ -2029,7 +2029,7 @@ void prep_stuff()
     // Compile and create another pixel shader
     pBlobPS = NULL;
     memset(pixel_shader, 0, sizeof(pixel_shader));
-    sprintf(pixel_shader, g_strTexPS, _config->_overlay_image_alpha);
+    sprintf(pixel_shader, g_strTexPS, _config->_overlay_image_alpha_max);
     hr = D3DCompile(pixel_shader, strlen(pixel_shader) + 1, "PStex", NULL, NULL, "PStex",
         "ps_4_0", dwShaderFlags, 0, &pBlobPS, &pBlobError);
     if (FAILED(hr))
@@ -3932,7 +3932,7 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"overlay.font = %s\n", _config->_overlay_font.c_str());
     log_(L"overlay.text-color = 0x%08x\n", _config->_overlay_text_color);
     log_(L"overlay.background-color = 0x%08x\n", _config->_overlay_background_color);
-    log_(L"overlay.image-alpha = %03f\n", _config->_overlay_image_alpha);
+    log_(L"overlay.image-alpha-max = %03f\n", _config->_overlay_image_alpha_max);
     log_(L"overlay.location = %d\n", _config->_overlay_location);
     log_(L"overlay.font-size = %d\n", _config->_overlay_font_size);
     log_(L"overlay.vkey.toggle = 0x%02x\n", _config->_overlay_vkey_toggle);

@@ -194,11 +194,15 @@ overlay.text-color = "80ff80c0"
 done in HTML, except that you do not put '#' character in front)
 
 
-overlay.image-alpha = 0.8
+overlay.image-alpha-max = 0.8
 
-- alpha channel for the image displayed in the overlay (if there is one)
-The accepted range of values are: [0.0 - 1.0] : from full transparent
-to fully opaque.
+- max value for alpha channel for the image displayed in the overlay
+(if there is one). This is useful, if you want the image to be slightly
+translucent, as a visual hint that it is part of overlay. A value around
+0.7 or 0.8 would give such effect.
+Defaults to 1.0. The accepted range of values are: [0.0 - 1.0]
+    0.0 : fully transparent
+    1.0 : original alpha channel of the image is kept unmodified.
 
 
 vkey.reload-1 = 0x10

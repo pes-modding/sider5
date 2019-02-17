@@ -428,6 +428,10 @@ of priority. If only 1 (or none of the three) are specified, then a default
 width of 0.1 of total screen width is assumed, and the original aspect ratio
 of the image is used to calculate the height.
 
+Transparency of overlay images can be controlled by "overlay.image-alpha-max"
+settings in sider.ini. This setting affects all modules and cannot be changed
+at runtime. See readme.txt for details on how this settings works.
+
 
 -- Event name: "key_down"
 Handler function: f(ctx, vkey)

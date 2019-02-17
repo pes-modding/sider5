@@ -49,16 +49,19 @@ function m.after_set_conditions(ctx)
 end
 
 function m.get_ball_name(ctx, ball_name)
-    tlog("ball name: %s", ball_name)
+    tlog("get_ball_name: %s", ball_name)
 end
 
 function m.get_stadium_name(ctx, stadium_name)
-    tlog("stadium name: %s", stadium_name)
+    tlog("get_stadium_name: %s", stadium_name)
 end
 
+local opts = { image_width = 32, image_hmargin = 4, image_vmargin = 2 }
 function m.overlay_on(ctx)
     local memory_used = collectgarbage("count")
-    return(string.format("ctx: %s\nLua memory used: %d KB", t2s(ctx), memory_used))
+    local text = string.format("ctx: %s\nLua memory used: %d KB", t2s(ctx), memory_used)
+    local image_path = ctx.sider_dir .. "sider-icon.dds"
+    return text, image_path, opts
 end
 
 function m.init(ctx)

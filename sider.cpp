@@ -3932,7 +3932,7 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"overlay.font = %s\n", _config->_overlay_font.c_str());
     log_(L"overlay.text-color = 0x%08x\n", _config->_overlay_text_color);
     log_(L"overlay.background-color = 0x%08x\n", _config->_overlay_background_color);
-    log_(L"overlay.image-alpha-max = %03f\n", _config->_overlay_image_alpha_max);
+    log_(L"overlay.image-alpha-max = %0.3f\n", _config->_overlay_image_alpha_max);
     log_(L"overlay.location = %d\n", _config->_overlay_location);
     log_(L"overlay.font-size = %d\n", _config->_overlay_font_size);
     log_(L"overlay.vkey.toggle = 0x%02x\n", _config->_overlay_vkey_toggle);

@@ -2977,6 +2977,7 @@ void sider_set_settings(STAD_STRUCT *dest_ss, STAD_STRUCT *src_ss)
         DBG(16) logu_("%02x %02x\n", mi->db0x03, mi->db0x17);
         return;
     }
+    DBG(16) logu_("%02x %02x (ok)\n", mi->db0x03, mi->db0x17);
 
     logu_("tournament_id: %d\n", mi->tournament_id_encoded);
 

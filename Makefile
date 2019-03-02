@@ -11,14 +11,13 @@ EXTRA_CFLAGS=/DDEBUG
 EXTRA_CFLAGS=/DMYDLL_RELEASE_BUILD
 !endif
 
-LPZLIB=soft\zlib123-dll\lib
-ZLIBDLL=soft\zlib123-dll\zlib1.dll
+LPZLIB=soft\zlib123-dll\dll_x64
+ZLIBINC=/I soft\zlib123-dll\include
 
 # 4731: warning about ebp modification
 CFLAGS=/nologo /Od /EHsc /wd4731 $(EXTRA_CFLAGS)
 LFLAGS=/NOLOGO
 LIBS=user32.lib gdi32.lib comctl32.lib version.lib ole32.lib
-LIBSDLL=pngdib.obj libpng.a zdll.lib $(LIBS)
 
 LUAINC=/I soft\LuaJIT-2.0.5\src
 LUALIBPATH=soft\LuaJIT-2.0.5\src
@@ -42,6 +41,7 @@ kmp.obj: kmp.cpp kmp.h
 common.obj: common.cpp common.h
 imageutil.obj: imageutil.cpp imageutil.h
 version.obj: version.cpp
+libz.obj: libz.cpp libz.h common.h
 memlib.obj: memlib.h memlib_lua.h memlib.cpp
 memlib_lua.h: memory.lua makememlibhdr.exe
 	makememlibhdr.exe
@@ -66,9 +66,9 @@ vshader.h: vshader.hlsl
 pshader.h: pshader.hlsl
 	fxc /E siderPS /Ges /T ps_4_0 /Fh pshader.h pshader.hlsl
 
-sider.obj: sider.cpp sider.h patterns.h common.h imageutil.h vshader.h pshader.h
-sider.dll: sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj DDSTextureLoader.obj WICTextureLoader.obj sider.res $(LUALIBPATH)\$(LUALIB) $(FW1LIBPATH)\$(FW1LIB)
-	$(LINK) $(LFLAGS) /out:sider.dll /DLL sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj DDSTextureLoader.obj WICTextureLoader.obj sider.res /LIBPATH:$(LUALIBPATH) /LIBPATH:$(FW1LIBPATH) $(LIBS) $(LUALIB) $(FW1LIB) /LIBPATH:"$(LIB)"
+sider.obj: sider.cpp sider.h patterns.h common.h imageutil.h vshader.h pshader.h libz.h
+sider.dll: sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj libz.obj DDSTextureLoader.obj WICTextureLoader.obj sider.res $(LUALIBPATH)\$(LUALIB) $(FW1LIBPATH)\$(FW1LIB) $(LPZLIB)\zlibwapi.lib
+	$(LINK) $(LFLAGS) /out:sider.dll /DLL sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj libz.obj DDSTextureLoader.obj WICTextureLoader.obj sider.res zlibwapi.lib /LIBPATH:$(LUALIBPATH) /LIBPATH:$(FW1LIBPATH) $(LIBS) $(LUALIB) $(FW1LIB) /LIBPATH:$(LPZLIB) /LIBPATH:"$(LIB)"
 
 sider.exe: main.obj sider.dll sider_main.res $(LUADLL)
 	$(LINK) $(LFLAGS) /out:sider.exe main.obj sider_main.res $(LIBS) sider.lib /LIBPATH:"$(LIB)"
@@ -78,7 +78,7 @@ $(LUADLL): $(LUALIBPATH)\$(LUALIB)
 	copy $(LUALIBPATH)\$(LUAJIT) .
 
 .cpp.obj:
-	$(CC) $(CFLAGS) -c $(INC) $(LUAINC) $(FW1INC) $<
+	$(CC) $(CFLAGS) -c $(INC) $(LUAINC) $(FW1INC) $(ZLIBINC) $<
 
 clean:
 	del *.obj *.dll *.exp *.res *.lib *.exe *~ memlib_lua.h vshader.h pshader.h

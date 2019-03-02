@@ -8,12 +8,14 @@
 #include <list>
 #include <string>
 #include <unordered_map>
+#include "zlib.h"
 #include "imageutil.h"
 #include "sider.h"
 #include "utf8.h"
 #include "common.h"
 #include "patterns.h"
 #include "memlib.h"
+#include "libz.h"
 
 #define DIRECTINPUT_VERSION 0x0800
 #define SAFE_RELEASE(x) if (x) { x->Release(); x = NULL; }
@@ -3584,6 +3586,10 @@ static void push_env_table(lua_State *L, const wchar_t *script_name)
     // memory lib
     lua_pushvalue(L, 2);
     lua_setfield(L, -2, "memory");
+
+    // z lib
+    init_z_lib(L);
+    lua_setfield(L, -2, "zlib");
 
     /*
     // gameplay lib

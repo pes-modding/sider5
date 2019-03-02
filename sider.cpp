@@ -969,6 +969,7 @@ struct module_t {
     int evt_lcpk_make_key;
     int evt_lcpk_get_filepath;
     int evt_lcpk_rewrite;
+    int evt_lcpk_read;
     int evt_set_teams;
     /*
     int evt_set_tid;
@@ -1724,6 +1725,29 @@ char *module_rewrite(module_t *m, const char *file_name)
     lua_pop(L, 1);
     LeaveCriticalSection(&_cs);
     return res;
+}
+
+void module_read(module_t *m, const char *file_name, void *data, LONGLONG len, FILE_LOAD_INFO *fli)
+{
+    char *res(NULL);
+    EnterCriticalSection(&_cs);
+    lua_pushvalue(m->L, m->evt_lcpk_read);
+    lua_xmove(m->L, L, 1);
+    // push params
+    lua_pushvalue(L, 1); // ctx
+    lua_pushstring(L, file_name);
+    lua_pushlightuserdata(L, data);
+    lua_pushinteger(L, len);
+    if (fli) {
+        lua_pushinteger(L, fli->total_bytes_to_read);
+        lua_pushinteger(L, fli->bytes_read_so_far);
+    }
+    if (lua_pcall(L, 6, 0, 0) != LUA_OK) {
+        const char *err = luaL_checkstring(L, -1);
+        logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+        lua_pop(L, 1);
+    }
+    LeaveCriticalSection(&_cs);
 }
 
 void module_make_key(module_t *m, const char *file_name, char *key, size_t key_maxsize)
@@ -2717,6 +2741,7 @@ BOOL sider_read_file(
     DWORD orgBytesToRead = nNumberOfBytesToRead;
     HANDLE handle = INVALID_HANDLE_VALUE;
     wstring *filename = NULL;
+    FILE_LOAD_INFO *fli;
 
     //log_(L"rs (R12) = %p\n", rs);
     if (rs) {
@@ -2725,7 +2750,7 @@ BOOL sider_read_file(
             rs->filesize, rs->offset.full, rs->filename);
 
         BYTE* p = (BYTE*)rs;
-        FILE_LOAD_INFO *fli = *((FILE_LOAD_INFO **)(p - 0x18));
+        fli = *((FILE_LOAD_INFO **)(p - 0x18));
 
         wstring *fn;
         fn = (_config->_lua_enabled) ? have_content(rs->filename) : NULL;
@@ -2798,6 +2823,21 @@ BOOL sider_read_file(
         //SetFilePointer(orgHandle, *lpNumberOfBytesRead, 0, FILE_CURRENT);
     }
 
+    if (rs) {
+        LONGLONG num_bytes_read = *lpNumberOfBytesRead;
+
+        // livecpk_read
+        if (_config->_lua_enabled) {
+            list<module_t*>::iterator i;
+            for (i = _modules.begin(); i != _modules.end(); i++) {
+                module_t *m = *i;
+                if (m->evt_lcpk_read != 0) {
+                    module_read(m, rs->filename, lpBuffer, num_bytes_read, fli);
+                }
+            }
+        }
+    }
+
     return result;
 }
 
@@ -2808,6 +2848,8 @@ void sider_mem_copy(BYTE *dst, LONGLONG dst_len, BYTE *src, LONGLONG src_len, st
 
     // do the original copy operation
     memcpy_s(dst, dst_len, src, src_len);
+
+    LONGLONG dst_len_used = dst_len;
 
     if (rs) {
         if (_config->_lua_enabled && _rewrite_count > 0) do_rewrite(rs->filename);
@@ -2867,6 +2909,19 @@ void sider_mem_copy(BYTE *dst, LONGLONG dst_len, BYTE *src, LONGLONG src_len, st
                 DBG(3) log_(L"mem_copy:: called ReadFile(%x, %p, %x, %x, %p)\n",
                     handle, dst, dst_len, &numberOfBytesRead, NULL);
                 CloseHandle(handle);
+
+                dst_len_used = numberOfBytesRead;
+            }
+        }
+
+        // livecpk_read
+        if (_config->_lua_enabled) {
+            list<module_t*>::iterator i;
+            for (i = _modules.begin(); i != _modules.end(); i++) {
+                module_t *m = *i;
+                if (m->evt_lcpk_read != 0) {
+                    module_read(m, rs->filename, dst, dst_len_used, fli);
+                }
             }
         }
     }
@@ -3326,6 +3381,12 @@ static int sider_context_register(lua_State *L)
         lua_xmove(L, _curr_m->L, 1);
         _curr_m->evt_lcpk_rewrite = lua_gettop(_curr_m->L);
         _rewrite_count++;
+        logu_("Registered for \"%s\" event\n", event_key);
+    }
+    else if (strcmp(event_key, "livecpk_read")==0) {
+        lua_pushvalue(L, -1);
+        lua_xmove(L, _curr_m->L, 1);
+        _curr_m->evt_lcpk_read = lua_gettop(_curr_m->L);
         logu_("Registered for \"%s\" event\n", event_key);
     }
     else if (strcmp(event_key, "set_teams")==0) {

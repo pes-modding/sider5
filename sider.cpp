@@ -271,9 +271,18 @@ bool _controller_prepped(false);
 int _frame_count(0);
 
 DIDATAFORMAT _data_format;
-int _num_buttons;
-DWORD _prev_controller_buttons[32];
-DWORD _controller_buttons[32];
+BYTE _prev_controller_buttons[64];
+BYTE _controller_buttons[64];
+list<DIDEVICEOBJECTINSTANCE> _di_objects;
+
+struct di_input_t {
+    DWORD dwOfs;
+    DWORD dwType;
+};
+
+struct di_input_t _di_overlay_toggle1;
+struct di_input_t _di_overlay_toggle2;
+struct di_input_t _di_module_switch;
 
 IFW1Factory *g_pFW1Factory;
 IFW1FontWrapper *g_pFontWrapper;
@@ -811,9 +820,9 @@ public:
             L"overlay.on-from-start", _overlay_on_from_start,
             config_ini);
 
-        //_overlay_controlled_by_gamepad = GetPrivateProfileInt(_section_name.c_str(),
-        //    L"overlay.gamepad.enabled", _overlay_controlled_by_gamepad,
-        //    config_ini);
+        _overlay_controlled_by_gamepad = GetPrivateProfileInt(_section_name.c_str(),
+            L"overlay.gamepad.enabled", _overlay_controlled_by_gamepad,
+            config_ini);
 
         _overlay_font_size = GetPrivateProfileInt(_section_name.c_str(),
             L"overlay.font-size", _overlay_font_size,
@@ -1166,8 +1175,22 @@ BOOL sider_device_enum_callback(LPCDIDEVICEINSTANCE lppdi, LPVOID pvRef)
 
 BOOL sider_object_enum_callback(LPCDIDEVICEOBJECTINSTANCE lpddoi, LPVOID pvRef)
 {
-    log_(L"object: name: %s\n", lpddoi->tszName);
-    _num_buttons++;
+    log_(L"object: name: %s, type: 0x%x, ofs: 0x%x\n", lpddoi->tszName, lpddoi->dwType, lpddoi->dwOfs);
+    DIDEVICEOBJECTINSTANCE ddoi;
+    memcpy(&ddoi, lpddoi,  sizeof(ddoi));
+    _di_objects.push_back(ddoi);
+    // button 6
+    if (ddoi.dwType == 0x604) {
+        _di_overlay_toggle1.dwType = ddoi.dwType;
+        _di_overlay_toggle1.dwOfs = ddoi.dwOfs;
+        _di_module_switch.dwType = ddoi.dwType;
+        _di_module_switch.dwOfs = ddoi.dwOfs;
+    }
+    // button 7
+    if (ddoi.dwType == 0x704) {
+        _di_overlay_toggle2.dwType = ddoi.dwType;
+        _di_overlay_toggle2.dwOfs = ddoi.dwOfs;
+    }
     return DIENUM_CONTINUE;
 }
 
@@ -2423,27 +2446,59 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
         }
         else if (_frame_count == 0) {
             if (SUCCEEDED(g_IDirectInputDevice8->Acquire())) {
-                memcpy(&_prev_controller_buttons, &_controller_buttons, sizeof(_controller_buttons));
-                hr = g_IDirectInputDevice8->GetDeviceState(sizeof(_controller_buttons), &_controller_buttons);
+                memcpy(_prev_controller_buttons, _controller_buttons, sizeof(_controller_buttons));
+                hr = g_IDirectInputDevice8->GetDeviceState(sizeof(_controller_buttons), _controller_buttons);
                 if (SUCCEEDED(hr)) {
-                    for (int i=0; i<_num_buttons; i++) {
-                        if (_prev_controller_buttons[i]==0 && _controller_buttons[i]!=0) {
-                            DBG(64) logu_("controller button %d DOWN\n", i);
-                        }
-                        else if (_prev_controller_buttons[i]!=0 && _controller_buttons[i]==0) {
-                            DBG(64) logu_("controller button %d UP\n", i);
+                    DBG(64) {
+                        if (memcmp(_prev_controller_buttons, _controller_buttons, sizeof(_controller_buttons))!=0) {
+                            logu_("was: ");
+                            list<DIDEVICEOBJECTINSTANCE>::iterator it;
+                            for (it = _di_objects.begin(); it != _di_objects.end(); it++) {
+                                if (it->dwType & DIDFT_AXIS) {
+                                    log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, *(DWORD*)(_prev_controller_buttons + it->dwOfs));
+                                }
+                                else if (it->dwType & DIDFT_POV) {
+                                    log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, *(DWORD*)(_prev_controller_buttons + it->dwOfs));
+                                }
+                                else {
+                                    log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, _prev_controller_buttons[it->dwOfs]);
+                                }
+                            }
+                            logu_("\n");
+                            logu_("now: ");
+                            for (it = _di_objects.begin(); it != _di_objects.end(); it++) {
+                                if (it->dwType & DIDFT_AXIS) {
+                                    log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, *(DWORD*)(_controller_buttons + it->dwOfs));
+                                }
+                                else if (it->dwType & DIDFT_POV) {
+                                    log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, *(DWORD*)(_controller_buttons + it->dwOfs));
+                                }
+                                else {
+                                    log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, _controller_buttons[it->dwOfs]);
+                                }
+                            }
+                            logu_("\n");
                         }
                     }
 
                     // test for events
                     // overlay toggle
-                    if ((_prev_controller_buttons[6]==0 || _prev_controller_buttons[7]==0) && _controller_buttons[6]!=0 && _controller_buttons[7]!=0) {
+                    BYTE was_b1 = *(BYTE*)(_prev_controller_buttons + _di_overlay_toggle1.dwOfs);
+                    BYTE was_b2 = *(BYTE*)(_prev_controller_buttons + _di_overlay_toggle2.dwOfs);
+                    BYTE b1 = *(BYTE*)(_controller_buttons + _di_overlay_toggle1.dwOfs);
+                    BYTE b2 = *(BYTE*)(_controller_buttons + _di_overlay_toggle2.dwOfs);
+                    if (b1==128 && b2==128 && (was_b1!=b1 || was_b2!=b2)) {
                         _overlay_on = !_overlay_on;
                         DBG(64) logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
                     }
-                    else if (_prev_controller_buttons[6]==0 && _controller_buttons[6]!=0) {
-                        if (_overlay_on) {
-                            sider_switch_overlay_to_next_module();
+                    else {
+                        // module switch
+                        BYTE was_b = *(BYTE*)(_prev_controller_buttons + _di_module_switch.dwOfs);
+                        BYTE b = *(BYTE*)(_controller_buttons + _di_module_switch.dwOfs);
+                        if (b==128 && was_b!=b) {
+                            if (_overlay_on) {
+                                sider_switch_overlay_to_next_module();
+                            }
                         }
                     }
                 }
@@ -3996,7 +4051,7 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"free.side.select = %d\n", _config->_free_side_select);
     log_(L"overlay.enabled = %d\n", _config->_overlay_enabled);
     log_(L"overlay.on-from-start = %d\n", _config->_overlay_on_from_start);
-    //log_(L"overlay.gamepad.enabled = %d\n", _config->_overlay_controlled_by_gamepad);
+    log_(L"overlay.gamepad.enabled = %d\n", _config->_overlay_controlled_by_gamepad);
     log_(L"overlay.font = %s\n", _config->_overlay_font.c_str());
     log_(L"overlay.text-color = 0x%08x\n", _config->_overlay_text_color);
     log_(L"overlay.background-color = 0x%08x\n", _config->_overlay_background_color);
@@ -4344,23 +4399,24 @@ void init_direct_input()
                     logu_("DirectInputDevice created: %p\n", g_IDirectInputDevice8);
 
                     // enumerate buttons and prepare data format
-                    _num_buttons = 0;
                     if (SUCCEEDED(g_IDirectInputDevice8->EnumObjects(
-                        sider_object_enum_callback, NULL, DIDFT_PSHBUTTON))) {
-                        logu_("number of buttons: %d\n", _num_buttons);
+                        sider_object_enum_callback, NULL, DIDFT_PSHBUTTON | DIDFT_AXIS | DIDFT_POV))) {
+                        logu_("number of inputs: %d\n", _di_objects.size());
 
                         memset(&_data_format, 0, sizeof(DIDATAFORMAT));
                         _data_format.dwSize = sizeof(DIDATAFORMAT);
                         _data_format.dwObjSize = sizeof(DIOBJECTDATAFORMAT);
                         _data_format.dwFlags = DIDF_ABSAXIS;
                         _data_format.dwDataSize = sizeof(_controller_buttons);
-                        _data_format.dwNumObjs = _num_buttons;
-                        size_t rgodf_size = sizeof(DIOBJECTDATAFORMAT) * _num_buttons;
+                        _data_format.dwNumObjs = _di_objects.size();
+                        size_t rgodf_size = sizeof(DIOBJECTDATAFORMAT) * _di_objects.size();
                         _data_format.rgodf = (LPDIOBJECTDATAFORMAT)malloc(rgodf_size);
-                        for (int i=0; i<_num_buttons; i++) {
-                            _data_format.rgodf[i].pguid = &GUID_Button;
-                            _data_format.rgodf[i].dwOfs = i*4;
-                            _data_format.rgodf[i].dwType = DIDFT_PSHBUTTON | DIDFT_MAKEINSTANCE(i);
+                        int i = 0;
+                        list<DIDEVICEOBJECTINSTANCE>::iterator it;
+                        for (it = _di_objects.begin(); it != _di_objects.end(); it++, i++) {
+                            _data_format.rgodf[i].pguid = &it->guidType;
+                            _data_format.rgodf[i].dwOfs = it->dwOfs;
+                            _data_format.rgodf[i].dwType = it->dwType;
                             _data_format.rgodf[i].dwFlags = 0;
                         }
 

@@ -1,7 +1,7 @@
 Sider 5 Lua Module Programmers Guide
 ====================================
-For sider.dll version: 5.1.4
-February 14, 2019
+For sider.dll version: 5.2.0
+March 6, 2019
 
 
 
@@ -104,7 +104,7 @@ of the game. As more scripts/modules are created by the community
 the context object will probably also change, and include more and more
 information about the game.
 
-As of 5.1.4 release, the context object has the following:
+As of 5.2.0 release, the context object has the following:
 
 ctx.home_team  - id of the home team of the current match, after
                  it is selected in the exhibition match, or the next
@@ -242,6 +242,38 @@ and don't rewrite blindly ;-)
 See "kitrewrite.lua" module for an example of rewrite usage: it is
 loading a 2nd player kit instead of a 1st goalkeeper kit, so your
 goalkeepers end up wearing 2nd kit of outfield players.
+
+
+- Event name: "livecpk_read"
+Handler function: f(ctx, filename, data, size, total_size, offset)
+Return value: nil.
+
+Provides a pointer to the buffer in memory ("data") that have just
+been filled with data. The "size" parameter gives the number of
+bytes that have just been read into that buffer. The other parameters
+provide the additional context for the read:
+    - filename: the relative pathname of the file,
+        (For example, "common\pesdb\etc\Team.bin")
+    - total_size: total size (in bytes) expected to be read
+        eventually for this file
+    - offset: offset in file before the read happened
+
+See "filedump.lua" and "tracer.lua" modules for example usage of
+this event. This is an advanced feature, which you will need if
+you wanted to examine the data that the game is about to use.
+Care must be taken to not leak memory. Also, be aware that some
+large files are not read all-at-once, but instead in multiple
+read operations. In such situation, use "offset" and "total_size"
+parameters to check if the file has been fully read, like this:
+
+    if offset + size >= total_size then
+        -- last read: we now got all of the data
+        -- do something with it
+        ...
+    end
+
+See "filedump.lua" for complete example of handling both
+multi-read and single-read files.
 
 
 - Event name: "set_teams"
@@ -605,4 +637,60 @@ until all sections are examined.
 Returns 2 values:
     1) address of string s in memory, if found, or nil - otherwise
     2) table with section info, in which the string was found.
+
+
+
+8. Zlib library
+~~~~~~~~~~~~~~~
+
+This library contains a small set of utility functons to work with
+compressed data. An example usage could be a combination of using a
+"livecpk_read" event to get the data, as it is read by the game, and
+then unpacking it, if it is compressed ("zlibbed").
+
+
+zlib.compress(data)
+
+Takes the string of data and compresses it.
+Returns 2 values:
+    1) string with compressed data, or nil - if an error occured
+    2) nil, or string with error message, if something went wrong
+
+
+zlib.uncompress(compressed_data, uncompressed_size)
+
+Decompresses the give string of data. The second parameter is
+optional: if you know the size of uncompressed data, then it is more
+efficient to provide it. If not, then uncompress will try a big
+enough buffer (3-times the size of compressed data)
+Returns 2 values:
+    1) string with uncompressed data, or nil - if an error occured
+    2) nil, or string with error message, if something went wrong
+
+
+zlib.pack(data)
+
+Creates a data structure that consists of "WESYS" header, used by
+Konami in PES games, followed by raw compressed data. The size of
+the WESYS header is 16 bytes, and its format is as follows:
+    bytes 0-2: magic bytes (version): 00 01 01
+    bytes 3-7: "WESYS"
+    bytes 8-11: compressed_size
+    bytes 12-15: uncompressed size
+Returns 2 values:
+    1) string containing the data structure, or nil - if an error occured
+    2) nil, or string with error message, if something went wrong
+
+
+zlib.unpack(data)
+
+Checks if the input is in Konami format of WESYS header, followed
+by the compressed data. If so, it will try to uncompress the data,
+using the size information from the header. If the data is not in
+the expected format, then it is returned as is - unmodified.
+Returns 2 values:
+    1) string containing uncompressed bytes, or original data,
+        if the input is not in WESYS-format, or nil, if some
+        error occured
+    2) nil, or string with error message, if an error occured.
 

@@ -2526,8 +2526,8 @@ void clear_overlay_texture() {
 
 int get_stick_state(int state) {
     float val = (state - 32767)/32767.0f;
-    if (val < -0.85) { return -1; }
-    else if (val > 0.85) { return 1; }
+    if (val < -0.74) { return -1; }
+    else if (val > 0.74) { return 1; }
     return 0;
 }
 

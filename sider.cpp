@@ -1082,7 +1082,7 @@ struct module_t {
     */
     int evt_overlay_on;
     int evt_key_down;
-    int evt_input_change;
+    int evt_gamepad_input;
 };
 list<module_t*> _modules;
 module_t* _curr_m;
@@ -1811,11 +1811,11 @@ void module_key_down(module_t *m, int vkey)
     }
 }
 
-void module_input_change(module_t *m, struct di_change_t *changes, size_t len)
+void module_gamepad_input(module_t *m, struct di_change_t *changes, size_t len)
 {
-    if (m->evt_input_change != 0) {
+    if (m->evt_gamepad_input != 0) {
         EnterCriticalSection(&_cs);
-        lua_pushvalue(m->L, m->evt_input_change);
+        lua_pushvalue(m->L, m->evt_gamepad_input);
         lua_xmove(m->L, L, 1);
         // push params
         lua_pushvalue(L, 1); // ctx
@@ -2646,7 +2646,7 @@ DWORD direct_input_poll(void *param) {
                         }
                         // lua callback: generate input-change event
                         module_t *m = *_curr_overlay_m;
-                        module_input_change(m, _di_changes, _di_changes_len);
+                        module_gamepad_input(m, _di_changes, _di_changes_len);
                     }
                 }
             }
@@ -3714,10 +3714,10 @@ static int sider_context_register(lua_State *L)
         _curr_m->evt_key_down = lua_gettop(_curr_m->L);
         logu_("Registered for \"%s\" event\n", event_key);
     }
-    else if (strcmp(event_key, "input_change")==0) {
+    else if (strcmp(event_key, "gamepad_input")==0) {
         lua_pushvalue(L, -1);
         lua_xmove(L, _curr_m->L, 1);
-        _curr_m->evt_input_change = lua_gettop(_curr_m->L);
+        _curr_m->evt_gamepad_input = lua_gettop(_curr_m->L);
         logu_("Registered for \"%s\" event\n", event_key);
     }
     else if (strcmp(event_key, "get_stadium_name")==0) {

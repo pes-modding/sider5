@@ -484,10 +484,10 @@ bool _priority_set(false);
 HANDLE _mh = NULL;
 
 wstring _overlay_header;
-wchar_t _overlay_text[1024];
-wchar_t _current_overlay_text[1024] = L"hello world!";
-char _overlay_utf8_text[1024];
-char _overlay_utf8_image_path[1024];
+wchar_t _overlay_text[4096];
+wchar_t _current_overlay_text[4096] = L"hello world!";
+char _overlay_utf8_text[4096];
+char _overlay_utf8_image_path[2048];
 
 #define DEFAULT_OVERLAY_TEXT_COLOR 0xc080ff80
 #define DEFAULT_OVERLAY_BACKGROUND_COLOR 0x80102010
@@ -505,6 +505,7 @@ char _overlay_utf8_image_path[1024];
 wchar_t module_filename[MAX_PATH];
 wchar_t dll_log[MAX_PATH];
 wchar_t dll_ini[MAX_PATH];
+wchar_t gamepad_ini[MAX_PATH];
 wchar_t sider_dir[MAX_PATH];
 
 static void string_strip_quotes(wstring& s)
@@ -524,6 +525,61 @@ public:
     }
     ~lock_t() {
         LeaveCriticalSection(_cs);
+    }
+};
+
+struct gamepad_input_mapping_t {
+    DWORD dwType;
+    int value;
+    BYTE vkey;
+};
+
+class gamepad_config_t {
+public:
+    wstring _section_name;
+    unordered_map<DWORD,gamepad_input_mapping_t> _map;
+
+    ~gamepad_config_t() {}
+    gamepad_config_t(const wstring& section_name, const wchar_t* gamepad_ini) :
+            _section_name(section_name)
+    {
+        wchar_t settings[32767];
+        RtlZeroMemory(settings, sizeof(settings));
+        if (GetPrivateProfileSection(_section_name.c_str(),
+            settings, sizeof(settings)/sizeof(wchar_t), gamepad_ini)==0) {
+            // no ini-file, or no "[gamepad]" section
+            return;
+        }
+
+        wchar_t* p = settings;
+        while (*p) {
+            wstring pair(p);
+            wstring key(pair.substr(0, pair.find(L"=")));
+            wstring value(pair.substr(pair.find(L"=")+1));
+            string_strip_quotes(value);
+
+            if (wcscmp(L"gamepad.input.mapping", key.c_str())==0) {
+                gamepad_input_mapping_t gim;
+                if (swscanf(value.c_str(), L"%x,%d,%x", &gim.dwType, &gim.value, &gim.vkey)==3) {
+                    short trimmed_value = (short)gim.value;
+                    DWORD key = (trimmed_value & 0xffff) | (gim.dwType << 16);
+                    _map.insert(std::pair<DWORD,gamepad_input_mapping_t>(key,gim));
+                }
+            }
+
+            p += wcslen(p) + 1;
+        }
+    }
+    bool lookup(DWORD dwType, int value, BYTE* vkey) {
+        short trimmed_value = (short)value;
+        DWORD key = (trimmed_value & 0xffff) | (dwType << 16);
+        unordered_map<DWORD,gamepad_input_mapping_t>::iterator it;
+        it = _map.find(key);
+        if (it != _map.end()) {
+            *vkey = it->second.vkey;
+            return true;
+        }
+        return false;
     }
 };
 
@@ -649,8 +705,11 @@ public:
     {
         wchar_t settings[32767];
         RtlZeroMemory(settings, sizeof(settings));
-        GetPrivateProfileSection(_section_name.c_str(),
-            settings, sizeof(settings)/sizeof(wchar_t), config_ini);
+        if (GetPrivateProfileSection(_section_name.c_str(),
+            settings, sizeof(settings)/sizeof(wchar_t), config_ini)==0) {
+            // no ini-file, or no "[sider]" section
+            return;
+        }
 
         wchar_t* p = settings;
         while (*p) {
@@ -900,6 +959,7 @@ public:
 };
 
 config_t* _config;
+gamepad_config_t* _gamepad_config;
 
 typedef struct {
     void *value;
@@ -1045,6 +1105,12 @@ bool init_paths() {
     p = wcsrchr(dll_ini, L'.');
     wcscpy(p, L".ini");
 
+    // prep gamepad.ini filename
+    memset(gamepad_ini, 0, sizeof(gamepad_ini));
+    wcscpy(gamepad_ini, dll_log);
+    p = wcsrchr(gamepad_ini, L'\\');
+    wcscpy(p, L"\\gamepad.ini");
+
     // prep sider dir
     memset(sider_dir, 0, sizeof(sider_dir));
     wcscpy(sider_dir, dll_log);
@@ -1065,19 +1131,12 @@ static int sider_log(lua_State *L) {
 
 void read_configuration(config_t*& config)
 {
-    wchar_t names[1024];
-    size_t names_len = sizeof(names)/sizeof(wchar_t);
-    GetPrivateProfileSectionNames(names, names_len, dll_ini);
+    config = new config_t(L"sider", dll_ini);
+}
 
-    wchar_t *p = names;
-    while (p && *p) {
-        wstring name(p);
-        if (name == L"sider") {
-            config = new config_t(name, dll_ini);
-            break;
-        }
-        p += wcslen(p) + 1;
-    }
+void read_gamepad_global_mapping(gamepad_config_t*& config)
+{
+    config = new gamepad_config_t(L"gamepad", gamepad_ini);
 }
 
 static bool skip_process(wchar_t* name)
@@ -1772,6 +1831,29 @@ void module_input_change(module_t *m, struct di_change_t *changes, size_t len)
             lua_pop(L, 1);
         }
         LeaveCriticalSection(&_cs);
+    }
+    else if (m->evt_key_down != 0) {
+        // check global gamepad input mapping
+        for (int i=0; i<len; i++) {
+            BYTE vkey;
+            bool mapped = _gamepad_config->lookup(changes[i].dwType, changes[i].state, &vkey);
+            if (!mapped) {
+                continue;
+            }
+            DBG(256) logu_("for input event (0x%x,%d) found mapped vkey: 0x%x\n", changes[i].dwType, changes[i].state, vkey);
+            EnterCriticalSection(&_cs);
+            lua_pushvalue(m->L, m->evt_key_down);
+            lua_xmove(m->L, L, 1);
+            // push params
+            lua_pushvalue(L, 1); // ctx
+            lua_pushinteger(L, vkey); // ctx
+            if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+                const char *err = luaL_checkstring(L, -1);
+                logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+                lua_pop(L, 1);
+            }
+            LeaveCriticalSection(&_cs);
+        }
     }
 }
 
@@ -4178,6 +4260,15 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"match.minutes = %d\n", _config->_num_minutes);
 
     log_(L"--------------------------\n");
+    log_(L"Global input mapping: %d items\n", _gamepad_config->_map.size());
+    for (unordered_map<DWORD,gamepad_input_mapping_t>::iterator it = _gamepad_config->_map.begin();
+            it != _gamepad_config->_map.end();
+            it++) {
+        log_(L"gamepad.input.mapping: 0x%08x --> (0x%x,%d,0x%x)\n", it->first,
+            it->second.dwType, it->second.value, it->second.vkey);
+    }
+
+    log_(L"--------------------------\n");
     log_(L"hook.set-team-id = %d\n", _config->_hook_set_team_id);
     log_(L"hook.set-settings = %d\n", _config->_hook_set_settings);
     log_(L"hook.context-reset = %d\n", _config->_hook_context_reset);
@@ -4581,6 +4672,7 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
 
             if (is_pes(module_filename, &match)) {
                 read_configuration(_config);
+                read_gamepad_global_mapping(_gamepad_config);
 
                 wstring version;
                 get_module_version(hDLL, version);

@@ -85,7 +85,7 @@ function m.search(s, from, to)
     local oldprot = ffi.new('uint32_t[1]',{});
     if not C.VirtualProtect(p, range, PAGE_EXECUTE_READWRITE, oldprot) then
         return error(string.format('VirtualProtect failed for %s - %s memory range',
-            m.hex(from), m.hex(to)))
+            m.hex(p), m.hex(q)))
     end
     while p < q do
         if C.memcmp(p, cs, slen) == 0 then
@@ -100,7 +100,7 @@ function m.read(addr, len)
     local oldprot = ffi.new('uint32_t[1]',{});
     if not C.VirtualProtect(p, len, PAGE_EXECUTE_READWRITE, oldprot) then
         return error(string.format('VirtualProtect failed for %s - %s memory range',
-            m.hex(addr), m.hex(addr+len)))
+            m.hex(p), m.hex(p+len)))
     end
     return ffi.string(p, len)
 end
@@ -111,7 +111,7 @@ function m.write(addr, s)
     local len = #s
     if not C.VirtualProtect(p, len, PAGE_EXECUTE_READWRITE, oldprot) then
         return error(string.format('VirtualProtect failed for %s - %s memory range',
-            m.hex(addr), m.hex(addr+len)))
+            m.hex(p), m.hex(p+len)))
     end
     ffi.copy(p, s, len)
 end
@@ -166,7 +166,7 @@ function m.hex(value)
             return string.format('%02x', string.byte(c))
         end)
         return s
-    elseif type(value) == 'cdata' then
+    elseif type(value) == 'cdata' or type(value) == 'userdata' then
         local buf = ffi.new('char[32]',{});
         C.sprintf(buf, ffi.cast('char*', '0x%llx'), ffi.cast('uint64_t',value));
         return ffi.string(buf)

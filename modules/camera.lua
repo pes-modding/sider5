@@ -173,6 +173,11 @@ function m.key_down(ctx, vkey)
     end
 end
 
+function m.gamepad_input(ctx, inputs)
+    -- ignore all gamepad input
+    -- only react to keyabord hotkeys
+end
+
 function m.init(ctx)
     -- find the base address of the block of camera settings
     local pattern = "\x84\xc0\x41\x0f\x45\xfe\xf3\x0f\x10\x5b\x0c"
@@ -218,6 +223,7 @@ function m.init(ctx)
     ctx.register("set_teams", m.set_teams)
     ctx.register("overlay_on", m.overlay_on)
     ctx.register("key_down", m.key_down)
+    ctx.register("gamepad_input", m.gamepad_input)
 end
 
 return m

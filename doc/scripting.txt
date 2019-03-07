@@ -449,9 +449,9 @@ formatting for the image. The following ones are supported:
                           This options allows to enforce aspect ratio that is
                           different from the source image. This value is NOT
                           used if both image_width and image_height are specified.
-    "iamge_hmargin": whitespace margin in pixels to be placed to the left and to
+    "image_hmargin": whitespace margin in pixels to be placed to the left and to
                      the right of the image.
-    "iamge_vmargin": whitespace margin in pixels to be placed to the top and to
+    "image_vmargin": whitespace margin in pixels to be placed to the top and to
                      the bottom of the image.
 
 Final dimensions of the image on screen are calculated using two of the three
@@ -470,12 +470,61 @@ Handler function: f(ctx, vkey)
 Return value expected: nil
 
 When the overlay is on, and the current Lua module is in control of the
-overlay, this evnt fires when user presses down any key on the keyboard. The
+overlay, this event fires when user presses down any key on the keyboard. The
 so-called "virtual key code" will be passed as the value of "vkey" parameter.
 Your function can that take appropriate action, if it wants to react to
 such key events. A combination of "overlay_on" and "key_down" events can
 be used to build simple UIs in the overlay itself.
 See example of such UI in camera.lua
+
+
+-- Event name: "gamepad_input"
+Handler function: f(ctx, inputs)
+Return value expected: nil
+
+When the overlay is on, and the current Lua module is in control of the
+overlay, this event fires when user presses or releases a button, or moves
+a stick or d-pad of the game controller. (If you have multiple controllers
+attached, only one will generate these input events). The "inputs" parameter
+is always a table containing at least one, but possibly more than one mapping
+of: input-source --> input-value. The "input-source" is a numeric code that
+identifies the source of input: a button, stick, d-pad. See the following
+table for a typical 12-button game controller:
+
+    Name                | input-source | input-values
+    --------------------+--------------+-----------------
+    Button 0            | 0x4          | 0,1
+    Button 1            | 0x104        | 0,1
+    Button 2            | 0x204        | 0,1
+    Button 3            | 0x304        | 0,1
+    Button 4            | 0x404        | 0,1
+    Button 5            | 0x504        | 0,1
+    Button 6            | 0x604        | 0,1
+    Button 7            | 0x704        | 0,1
+    Button 8            | 0x804        | 0,1
+    Button 9            | 0x904        | 0,1
+    Button 10 (LS push) | 0xa04        | 0,1
+    Button 11 (RS push) | 0xb04        | 0,1
+    LS (left/right)     | 0x2          | -1,0,1
+    LS (up/down)        | 0x102        | -1,0,1
+    RS (left/right)     | 0x202        | -1,0,1
+    RS (up/down)        | 0x502        | -1,0,1
+    D-pad               | 0x10         | -1,0,45,90,135,180,225,270,315
+
+
+Best way to verify what codes your controller generates for "input-source"
+is to try the "inputdemo.lua" from the modules folder. It uses overlay to
+display the last 20 input events - both from keyboard and from gamepad.
+
+If your module is registered for "key_down" event, but not for the
+"gamepad_input" event, then sider will automatically map gamepad events
+into keyboard events, and emit those, for such gamepad events that are
+defined in the "global input mapping" configuration - in gamepad.ini.
+
+If you do not want this automatic mapping, make sure to register for
+the "gamepad_input" event in your module, and then do whatever is needed
+with the inputs. (You may choose to completely ignore them too, if you
+want. See example of that in camera.lua)
 
 
 

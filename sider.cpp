@@ -497,10 +497,13 @@ char _overlay_utf8_image_path[2048];
 #define DEFAULT_OVERLAY_LOCATION 0
 #define DEFAULT_OVERLAY_VKEY_TOGGLE 0x20
 #define DEFAULT_OVERLAY_VKEY_NEXT_MODULE 0x31
-#define DEFAULT_OVERLAY_GAMEPAD_POLL_INTERVAL_MSEC 50
 #define DEFAULT_VKEY_RELOAD_1 0x10 //Shift
 #define DEFAULT_VKEY_RELOAD_2 0x52 //R
 #define DEFAULT_GAMEPAD_POLL_INTERVAL_MSEC 200
+#define DEFAULT_GAMEPAD_OVERLAY_POLL_INTERVAL_MSEC 32
+#define DEFAULT_GAMEPAD_OVERLAY_TOGGLE_1 0x604
+#define DEFAULT_GAMEPAD_OVERLAY_TOGGLE_2 0x704
+#define DEFAULT_GAMEPAD_OVERLAY_NEXT_MODULE 0x604
 
 wchar_t module_filename[MAX_PATH];
 wchar_t dll_log[MAX_PATH];
@@ -606,8 +609,11 @@ public:
     bool _overlay_enabled;
     bool _overlay_on_from_start;
     bool _overlay_controlled_by_gamepad;
-    float _overlay_gamepad_poll_interval_msec;
-    float _gamepad_poll_interval_msec;
+    int _gamepad_poll_interval_msec;
+    int _gamepad_overlay_poll_interval_msec;
+    int _gamepad_overlay_toggle_1;
+    int _gamepad_overlay_toggle_2;
+    int _gamepad_overlay_next_module;
     wstring _overlay_font;
     DWORD _overlay_text_color;
     DWORD _overlay_background_color;
@@ -662,7 +668,7 @@ public:
                  _free_side_select(false),
                  _overlay_enabled(false),
                  _overlay_on_from_start(false),
-                 _overlay_controlled_by_gamepad(false),
+                 _overlay_controlled_by_gamepad(true),
                  _overlay_font(DEFAULT_OVERLAY_FONT),
                  _overlay_text_color(DEFAULT_OVERLAY_TEXT_COLOR),
                  _overlay_background_color(DEFAULT_OVERLAY_BACKGROUND_COLOR),
@@ -671,8 +677,11 @@ public:
                  _overlay_location(DEFAULT_OVERLAY_LOCATION),
                  _overlay_vkey_toggle(DEFAULT_OVERLAY_VKEY_TOGGLE),
                  _overlay_vkey_next_module(DEFAULT_OVERLAY_VKEY_NEXT_MODULE),
-                 _overlay_gamepad_poll_interval_msec(DEFAULT_OVERLAY_GAMEPAD_POLL_INTERVAL_MSEC),
                  _gamepad_poll_interval_msec(DEFAULT_GAMEPAD_POLL_INTERVAL_MSEC),
+                 _gamepad_overlay_poll_interval_msec(DEFAULT_GAMEPAD_OVERLAY_POLL_INTERVAL_MSEC),
+                 _gamepad_overlay_toggle_1(DEFAULT_GAMEPAD_OVERLAY_TOGGLE_1),
+                 _gamepad_overlay_toggle_2(DEFAULT_GAMEPAD_OVERLAY_TOGGLE_2),
+                 _gamepad_overlay_next_module(DEFAULT_GAMEPAD_OVERLAY_NEXT_MODULE),
                  _vkey_reload_1(DEFAULT_VKEY_RELOAD_1),
                  _vkey_reload_2(DEFAULT_VKEY_RELOAD_2),
                  _key_cache_ttl_sec(10),
@@ -785,6 +794,24 @@ public:
                 int v;
                 if (swscanf(value.c_str(), L"%x", &v)==1) {
                     _overlay_vkey_next_module = v;
+                }
+            }
+            else if (wcscmp(L"gamepad.overlay.toggle-1", key.c_str())==0) {
+                int v;
+                if (swscanf(value.c_str(), L"%x", &v)==1) {
+                    _gamepad_overlay_toggle_1 = v;
+                }
+            }
+            else if (wcscmp(L"gamepad.overlay.toggle-2", key.c_str())==0) {
+                int v;
+                if (swscanf(value.c_str(), L"%x", &v)==1) {
+                    _gamepad_overlay_toggle_2 = v;
+                }
+            }
+            else if (wcscmp(L"gamepad.overlay.next-module", key.c_str())==0) {
+                int v;
+                if (swscanf(value.c_str(), L"%x", &v)==1) {
+                    _gamepad_overlay_next_module = v;
                 }
             }
             else if (wcscmp(L"vkey.reload-1", key.c_str())==0) {
@@ -900,8 +927,8 @@ public:
             L"overlay.font-size", _overlay_font_size,
             config_ini);
 
-        _overlay_gamepad_poll_interval_msec = GetPrivateProfileInt(_section_name.c_str(),
-            L"overlay.gamepad.poll-interval-msec", _overlay_gamepad_poll_interval_msec,
+        _gamepad_overlay_poll_interval_msec = GetPrivateProfileInt(_section_name.c_str(),
+            L"gamepad.overlay.poll-interval-msec", _gamepad_overlay_poll_interval_msec,
             config_ini);
 
         _gamepad_poll_interval_msec = GetPrivateProfileInt(_section_name.c_str(),
@@ -1244,7 +1271,7 @@ static bool is_pes(wchar_t* name, wstring** match)
 
 void set_controller_poll_delay() {
     _controller_poll_delay = (_overlay_on) ?
-        _config->_overlay_gamepad_poll_interval_msec :
+        _config->_gamepad_overlay_poll_interval_msec :
         _config->_gamepad_poll_interval_msec;
 }
 
@@ -1262,17 +1289,20 @@ BOOL sider_object_enum_callback(LPCDIDEVICEOBJECTINSTANCE lpddoi, LPVOID pvRef)
     DIDEVICEOBJECTINSTANCE ddoi;
     memcpy(&ddoi, lpddoi,  sizeof(ddoi));
     _di_objects.push_back(ddoi);
-    // button 6
-    if (ddoi.dwType == 0x604) {
+    // toggle 1
+    if (ddoi.dwType == _config->_gamepad_overlay_toggle_1) {
         _di_overlay_toggle1.dwType = ddoi.dwType;
         _di_overlay_toggle1.dwOfs = ddoi.dwOfs;
-        _di_module_switch.dwType = ddoi.dwType;
-        _di_module_switch.dwOfs = ddoi.dwOfs;
     }
-    // button 7
-    if (ddoi.dwType == 0x704) {
+    // toggle 2
+    if (ddoi.dwType == _config->_gamepad_overlay_toggle_2) {
         _di_overlay_toggle2.dwType = ddoi.dwType;
         _di_overlay_toggle2.dwOfs = ddoi.dwOfs;
+    }
+    // next module
+    if (ddoi.dwType == _config->_gamepad_overlay_next_module) {
+        _di_module_switch.dwType = ddoi.dwType;
+        _di_module_switch.dwOfs = ddoi.dwOfs;
     }
     return DIENUM_CONTINUE;
 }
@@ -4252,8 +4282,11 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"overlay.font-size = %d\n", _config->_overlay_font_size);
     log_(L"overlay.vkey.toggle = 0x%02x\n", _config->_overlay_vkey_toggle);
     log_(L"overlay.vkey.next-module = 0x%02x\n", _config->_overlay_vkey_next_module);
-    log_(L"overlay.gamepad.poll-interval-msec = %d\n", _config->_overlay_gamepad_poll_interval_msec);
     log_(L"gamepad.poll-interval-msec = %d\n", _config->_gamepad_poll_interval_msec);
+    log_(L"gamepad.overlay.poll-interval-msec = %d\n", _config->_gamepad_overlay_poll_interval_msec);
+    log_(L"gamepad.overlay.toggle-1 = 0x%x\n", _config->_gamepad_overlay_toggle_1);
+    log_(L"gamepad.overlay.toggle-2 = 0x%x\n", _config->_gamepad_overlay_toggle_2);
+    log_(L"gamepad.overlay.next-module = 0x%x\n", _config->_gamepad_overlay_next_module);
     log_(L"vkey.reload-1 = 0x%02x\n", _config->_vkey_reload_1);
     log_(L"vkey.reload-2 = 0x%02x\n", _config->_vkey_reload_2);
     log_(L"close.on.exit = %d\n", _config->_close_sider_on_exit);

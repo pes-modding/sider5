@@ -1,4 +1,10 @@
--- testing large allocation
+--[[
+testing large allocation
+This demo module requires LuaJIT ffi module to be enabled in sider.ini with:
+
+luajit.ext.enabled = 1
+
+--]]
 
 local m = {}
 

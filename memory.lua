@@ -92,12 +92,12 @@ function m.search(s, from, to)
     local start = p
     while p < q do
         if C.memcmp(p, cs, slen) == 0 then
-            break
+            C.VirtualProtect(start, range, oldprot[0], newprot)
+            return p
         end
         p = p+1
     end
     C.VirtualProtect(start, range, oldprot[0], newprot)
-    return p
 end
 
 function m.read(addr, len)

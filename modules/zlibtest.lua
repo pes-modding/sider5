@@ -18,7 +18,7 @@ local function hex_dump(data)
             end
         end)
         local padding = #bytes < 16 and string.rep('   ', 16-#bytes) or ''
-        log(string.format("%s%s | %s", hex_part, padding, ascii_part))
+        log(string.format("%08x: %s%s | %s", offs-1, hex_part, padding, ascii_part))
         offs = offs + 16
     end
 end

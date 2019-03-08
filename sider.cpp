@@ -540,7 +540,7 @@ struct gamepad_input_mapping_t {
 class gamepad_config_t {
 public:
     wstring _section_name;
-    unordered_map<DWORD,gamepad_input_mapping_t> _map;
+    unordered_map<uint64_t,gamepad_input_mapping_t> _map;
 
     ~gamepad_config_t() {}
     gamepad_config_t(const wstring& section_name, const wchar_t* gamepad_ini) :
@@ -564,9 +564,8 @@ public:
             if (wcscmp(L"gamepad.input.mapping", key.c_str())==0) {
                 gamepad_input_mapping_t gim;
                 if (swscanf(value.c_str(), L"%x,%d,%x", &gim.dwType, &gim.value, &gim.vkey)==3) {
-                    short trimmed_value = (short)gim.value;
-                    DWORD key = (trimmed_value & 0xffff) | (gim.dwType << 16);
-                    _map.insert(std::pair<DWORD,gamepad_input_mapping_t>(key,gim));
+                    uint64_t key = (((uint64_t)gim.dwType << 32) & 0xffffffff00000000L ) | ((uint64_t)gim.value & 0x00000000ffffffffL);
+                    _map.insert(std::pair<uint64_t,gamepad_input_mapping_t>(key,gim));
                 }
             }
 
@@ -574,9 +573,8 @@ public:
         }
     }
     bool lookup(DWORD dwType, int value, BYTE* vkey) {
-        short trimmed_value = (short)value;
-        DWORD key = (trimmed_value & 0xffff) | (dwType << 16);
-        unordered_map<DWORD,gamepad_input_mapping_t>::iterator it;
+        uint64_t key = (((uint64_t)dwType << 32) & 0xffffffff00000000L ) | ((uint64_t)value & 0x00000000ffffffffL);
+        unordered_map<uint64_t,gamepad_input_mapping_t>::iterator it;
         it = _map.find(key);
         if (it != _map.end()) {
             *vkey = it->second.vkey;
@@ -4294,10 +4292,10 @@ DWORD install_func(LPVOID thread_param) {
 
     log_(L"--------------------------\n");
     log_(L"Global input mapping: %d items\n", _gamepad_config->_map.size());
-    for (unordered_map<DWORD,gamepad_input_mapping_t>::iterator it = _gamepad_config->_map.begin();
+    for (unordered_map<uint64_t,gamepad_input_mapping_t>::iterator it = _gamepad_config->_map.begin();
             it != _gamepad_config->_map.end();
             it++) {
-        log_(L"gamepad.input.mapping: 0x%08x --> (0x%x,%d,0x%x)\n", it->first,
+        log_(L"gamepad.input.mapping: 0x%016llx --> (0x%x,%d,0x%x)\n", it->first,
             it->second.dwType, it->second.value, it->second.vkey);
     }
 

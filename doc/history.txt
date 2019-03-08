@@ -2,7 +2,7 @@ Sider 5 Release History
 =======================
 
 
-March 6, 2019
+March 8, 2019
 v5.2.0
 - new scripting event: "livecpk_read" - access to data used by the game
 - the overlay can be controller via gamepad

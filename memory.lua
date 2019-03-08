@@ -75,6 +75,7 @@ IMAGE_DOS_HEADER *GetModuleHandleW(char *name);
 local m = {}
 
 local PAGE_EXECUTE_READWRITE = 0x40
+local PAGE_EXECUTE_WRITECOPY = 0x80
 
 function m.search(s, from, to)
     local p = ffi.cast('char*', from)
@@ -82,27 +83,36 @@ function m.search(s, from, to)
     local cs = ffi.cast('char*', s)
     local range = to - from
     local slen = #s
+    local newprot = ffi.new('uint32_t[1]',{});
     local oldprot = ffi.new('uint32_t[1]',{});
     if not C.VirtualProtect(p, range, PAGE_EXECUTE_READWRITE, oldprot) then
         return error(string.format('VirtualProtect failed for %s - %s memory range',
             m.hex(p), m.hex(q)))
     end
+    local start = p
     while p < q do
         if C.memcmp(p, cs, slen) == 0 then
-            return p
+            break
         end
         p = p+1
     end
+    C.VirtualProtect(start, range, oldprot[0], newprot)
+    return p
 end
 
 function m.read(addr, len)
     local p = ffi.cast('char*', addr)
     local oldprot = ffi.new('uint32_t[1]',{});
+    local warning = nil
     if not C.VirtualProtect(p, len, PAGE_EXECUTE_READWRITE, oldprot) then
-        return error(string.format('VirtualProtect failed for %s - %s memory range',
-            m.hex(p), m.hex(p+len)))
+        warning = string.format('VirtualProtect failed for %s - %s memory range. But retried successfully',
+            m.hex(p), m.hex(p+len))
+        if not C.VirtualProtect(p, len, PAGE_EXECUTE_READWRITE, oldprot) then
+            warning = string.format('VirtualProtect failed for %s - %s memory range.',
+                m.hex(p), m.hex(p+len))
+        end
     end
-    return ffi.string(p, len)
+    return ffi.string(p, len), warning
 end
 
 function m.write(addr, s)

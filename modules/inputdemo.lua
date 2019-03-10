@@ -2,7 +2,7 @@
 =========================
 
 inputdemo module
-Requires: sider.dll 5.1.0
+Requires: sider.dll 5.2.1
 
 Demonstrates usage of: "overlay_on", "key_down" and "gamepad_input" events
 
@@ -53,8 +53,8 @@ function m.key_down(ctx, vkey)
 end
 
 function m.gamepad_input(ctx, inputs)
-    for itype,ivalue in pairs(inputs) do
-        lines[#lines + 1] = string.format("Gamepad input event: type=0x%x, value=%d", itype, ivalue)
+    for name,value in pairs(inputs) do
+        lines[#lines + 1] = string.format("Gamepad input event: name=%s, value=%d", name, value)
     end
     lines = get_last(lines, MAX_LINES)
     text = table.concat(lines, '\n')

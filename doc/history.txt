@@ -2,6 +2,15 @@ Sider 5 Release History
 =======================
 
 
+March 10, 2019
+v5.2.1
+- refactoring the support for overlay control via gamepad.
+  Both DirectInput and XInput controllers are now supported with
+  their native APIs. The "gamepad_input" event has been changed
+  also to use symbolic names for the buttons, such as:
+  "LB","X","DPAD", etc.
+
+
 March 8, 2019
 v5.2.0
 - new scripting event: "livecpk_read" - access to data used by the game

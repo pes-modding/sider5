@@ -1,7 +1,7 @@
 Sider 5 Lua Module Programmers Guide
 ====================================
-For sider.dll version: 5.2.0
-March 8, 2019
+For sider.dll version: 5.2.1
+March 10, 2019
 
 
 
@@ -487,34 +487,40 @@ overlay, this event fires when user presses or releases a button, or moves
 a stick or d-pad of the game controller. (If you have multiple controllers
 attached, only one will generate these input events). The "inputs" parameter
 is always a table containing at least one, but possibly more than one mapping
-of: input-source --> input-value. The "input-source" is a numeric code that
+of: input-name --> input-value. The "input-name" is a symbolic name that
 identifies the source of input: a button, stick, d-pad. See the following
-table for a typical 12-button game controller:
+table for all possible combinations:
 
-    Name                | input-source | input-values
+    input               | input-name | input-values
     --------------------+--------------+-----------------
-    Button 0            | 0x4          | 0,1
-    Button 1            | 0x104        | 0,1
-    Button 2            | 0x204        | 0,1
-    Button 3            | 0x304        | 0,1
-    Button 4            | 0x404        | 0,1
-    Button 5            | 0x504        | 0,1
-    Button 6            | 0x604        | 0,1
-    Button 7            | 0x704        | 0,1
-    Button 8            | 0x804        | 0,1
-    Button 9            | 0x904        | 0,1
-    Button 10 (LS push) | 0xa04        | 0,1
-    Button 11 (RS push) | 0xb04        | 0,1
-    LS (left/right)     | 0x2          | -1,0,1
-    LS (up/down)        | 0x102        | -1,0,1
-    RS (left/right)     | 0x202        | -1,0,1
-    RS (up/down)        | 0x502        | -1,0,1
-    D-pad               | 0x10         | -1,0,45,90,135,180,225,270,315
+    Button 0            | A          | 0,1
+    Button 1            | B          | 0,1
+    Button 2            | X          | 0,1
+    Button 3            | Y          | 0,1
+    Button 4            | LB         | 0,1
+    Button 5            | RB         | 0,1
+    Button 6            | START      | 0,1
+    Button 7            | BACK       | 0,1
+    Button 8            | LT         | 0,1
+    Button 9            | RT         | 0,1
+    Button 10 (LS push) | LS         | 0,1
+    Button 11 (RS push) | RS         | 0,1
+    LS (left/right)     | LSx        | -1,0,1
+    LS (up/down)        | LSy        | -1,0,1
+    RS (left/right)     | RSx        | -1,0,1
+    RS (up/down)        | RSy        | -1,0,1
+    D-pad               | DPAD       | 0,1,9,8,10,2,6,4,5
 
+For buttons, 0: pressed, 1: pressed.
+For sticks, horizontal: -1: left, 0:middle, 1:right
+              vertical: -1: down, 0:middle, 1:up
+For D-pad, 0: not pressed, 1:up, 2:down, 4:left, 8:right
+    5:up/left, 6:down/left, 10:down/right, 9:up/right
 
-Best way to verify what codes your controller generates for "input-source"
-is to try the "inputdemo.lua" from the modules folder. It uses overlay to
-display the last 20 input events - both from keyboard and from gamepad.
+Best way to verify what names correspond to what buttons on your
+controller, is to try the "inputdemo.lua" from the modules folder.
+It uses overlay to display the last 20 input events - both from
+keyboard and from gamepad.
 
 If your module is registered for "key_down" event, but not for the
 "gamepad_input" event, then sider will automatically map gamepad events

@@ -24,6 +24,7 @@
 #include "d3dcompiler.h"
 #include "FW1FontWrapper.h"
 #include "dinput.h"
+#include "xinput.h"
 #include "DDSTextureLoader.h"
 #include "WICTextureLoader.h"
 
@@ -36,6 +37,7 @@
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "dinput8.lib")
 #pragma comment(lib, "dxguid.lib")
+#pragma comment(lib, "xinput.lib")
 
 #ifndef LUA_OK
 #define LUA_OK 0
@@ -294,6 +296,26 @@ struct di_change_t {
 di_change_t *_di_changes;
 size_t _di_changes_len = 0;
 
+/* similar to XINPUT_STATE, but with values adjusted for sider use */
+struct xi_state_t {
+    BYTE buttons[10];
+    BYTE left_trigger;
+    BYTE right_trigger;
+    int8_t left_stick_x;
+    int8_t left_stick_y;
+    int8_t right_stick_x;
+    int8_t right_stick_y;
+    BYTE dpad;
+};
+xi_state_t _prev_xi_state;
+
+struct xi_change_t {
+    int state;
+    int what;
+};
+xi_change_t _xi_changes[17];
+size_t _xi_changes_len = 0;
+
 IFW1Factory *g_pFW1Factory;
 IFW1FontWrapper *g_pFontWrapper;
 float _font_size = 20.0f;
@@ -501,9 +523,12 @@ char _overlay_utf8_image_path[2048];
 #define DEFAULT_VKEY_RELOAD_2 0x52 //R
 #define DEFAULT_GAMEPAD_POLL_INTERVAL_MSEC 200
 #define DEFAULT_GAMEPAD_OVERLAY_POLL_INTERVAL_MSEC 32
-#define DEFAULT_GAMEPAD_OVERLAY_TOGGLE_1 0x704
-#define DEFAULT_GAMEPAD_OVERLAY_TOGGLE_2 0x604
-#define DEFAULT_GAMEPAD_OVERLAY_NEXT_MODULE 0x604
+#define DEFAULT_GAMEPAD_DI_OVERLAY_TOGGLE_1 0x704
+#define DEFAULT_GAMEPAD_DI_OVERLAY_TOGGLE_2 0x604
+#define DEFAULT_GAMEPAD_DI_OVERLAY_NEXT_MODULE 0x604
+#define DEFAULT_GAMEPAD_XI_OVERLAY_TOGGLE_1 11
+#define DEFAULT_GAMEPAD_XI_OVERLAY_TOGGLE_2 10
+#define DEFAULT_GAMEPAD_XI_OVERLAY_NEXT_MODULE 10
 
 wchar_t module_filename[MAX_PATH];
 wchar_t dll_log[MAX_PATH];
@@ -531,19 +556,71 @@ public:
     }
 };
 
-struct gamepad_input_mapping_t {
+struct gamepad_dinput_mapping_t {
     DWORD dwType;
     int value;
     BYTE vkey;
 };
 
+struct gamepad_xinput_mapping_t {
+    int what;
+    int value;
+    BYTE vkey;
+};
+
+wchar_t *_xi_names[] = {
+    L"B0", L"B1", L"B2", L"B3", L"B4",
+    L"B5", L"B6", L"B7", L"B8", L"B9",
+    L"LT", L"RT",
+    L"LSx", L"LSy", L"RSx", L"RSy",
+    L"DPAD"
+};
+
+char *_xi_utf8_names[] = {
+    "B0", "B1", "B2", "B3", "B4",
+    "B5", "B6", "B7", "B8", "B9",
+    "LT", "RT",
+    "LSx", "LSy", "RSx", "RSy",
+    "DPAD"
+};
+
+int xi_name_to_number(const wchar_t *s) {
+    for (int i=0; i<17; i++) {
+        if (wcscmp(s, _xi_names[i])==0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 class gamepad_config_t {
 public:
     wstring _section_name;
-    unordered_map<uint64_t,gamepad_input_mapping_t> _map;
+    unordered_map<uint64_t,gamepad_dinput_mapping_t> _map_di;
+    unordered_map<uint64_t,gamepad_xinput_mapping_t> _map_xi;
+    bool _dinput_enabled;
+    bool _xinput_enabled;
+    DWORD _di_overlay_toggle_1;
+    DWORD _di_overlay_toggle_2;
+    DWORD _di_overlay_next_module;
+    int _xi_overlay_toggle_1;
+    int _xi_overlay_toggle_2;
+    int _xi_overlay_next_module;
+    DWORD _gamepad_poll_interval_msec;
+    DWORD _gamepad_overlay_poll_interval_msec;
 
     ~gamepad_config_t() {}
     gamepad_config_t(const wstring& section_name, const wchar_t* gamepad_ini) :
+            _dinput_enabled(true),
+            _xinput_enabled(true),
+            _di_overlay_toggle_1(DEFAULT_GAMEPAD_DI_OVERLAY_TOGGLE_1),
+            _di_overlay_toggle_2(DEFAULT_GAMEPAD_DI_OVERLAY_TOGGLE_2),
+            _di_overlay_next_module(DEFAULT_GAMEPAD_DI_OVERLAY_NEXT_MODULE),
+            _xi_overlay_toggle_1(DEFAULT_GAMEPAD_XI_OVERLAY_TOGGLE_1),
+            _xi_overlay_toggle_2(DEFAULT_GAMEPAD_XI_OVERLAY_TOGGLE_2),
+            _xi_overlay_next_module(DEFAULT_GAMEPAD_XI_OVERLAY_NEXT_MODULE),
+            _gamepad_poll_interval_msec(DEFAULT_GAMEPAD_POLL_INTERVAL_MSEC),
+            _gamepad_overlay_poll_interval_msec(DEFAULT_GAMEPAD_OVERLAY_POLL_INTERVAL_MSEC),
             _section_name(section_name)
     {
         wchar_t settings[32767];
@@ -561,22 +638,103 @@ public:
             wstring value(pair.substr(pair.find(L"=")+1));
             string_strip_quotes(value);
 
-            if (wcscmp(L"gamepad.input.mapping", key.c_str())==0) {
-                gamepad_input_mapping_t gim;
+            if (wcscmp(L"gamepad.dinput.mapping", key.c_str())==0) {
+                gamepad_dinput_mapping_t gim;
                 if (swscanf(value.c_str(), L"%x,%d,%x", &gim.dwType, &gim.value, &gim.vkey)==3) {
                     uint64_t key = (((uint64_t)gim.dwType << 32) & 0xffffffff00000000L ) | ((uint64_t)gim.value & 0x00000000ffffffffL);
-                    _map.insert(std::pair<uint64_t,gamepad_input_mapping_t>(key,gim));
+                    _map_di.insert(std::pair<uint64_t,gamepad_dinput_mapping_t>(key,gim));
+                }
+            }
+            else if (wcscmp(L"gamepad.xinput.mapping", key.c_str())==0) {
+                gamepad_xinput_mapping_t gim;
+                wstring name(L"");
+                int first_comma_pos = value.find(L',');
+                if (first_comma_pos != string::npos) {
+                    name = value.substr(0, first_comma_pos);
+                    //log_(L"name = {%s}\n", name);
+                    value = value.substr(first_comma_pos + 1);
+                    if (swscanf(value.c_str(), L"%d,%x", &gim.value, &gim.vkey)==2) {
+                        gim.what = xi_name_to_number(name.c_str());
+                        if (gim.what >= 0) {
+                            uint64_t key = (((uint64_t)gim.what << 32) & 0xffffffff00000000L ) | ((uint64_t)gim.value & 0x00000000ffffffffL);
+                            _map_xi.insert(std::pair<uint64_t,gamepad_xinput_mapping_t>(key,gim));
+                        }
+                    }
+                }
+            }
+            else if (wcscmp(L"gamepad.dinput.overlay.toggle-1", key.c_str())==0) {
+                int v;
+                if (swscanf(value.c_str(), L"%x", &v)==1) {
+                    _di_overlay_toggle_1 = v;
+                }
+            }
+            else if (wcscmp(L"gamepad.dinput.overlay.toggle-2", key.c_str())==0) {
+                int v;
+                if (swscanf(value.c_str(), L"%x", &v)==1) {
+                    _di_overlay_toggle_2 = v;
+                }
+            }
+            else if (wcscmp(L"gamepad.dinput.overlay.next-module", key.c_str())==0) {
+                int v;
+                if (swscanf(value.c_str(), L"%x", &v)==1) {
+                    _di_overlay_next_module = v;
+                }
+            }
+            else if (wcscmp(L"gamepad.xinput.overlay.toggle-1", key.c_str())==0) {
+                int what = xi_name_to_number(value.c_str());
+                if (what != -1) {
+                    _xi_overlay_toggle_1 = what;
+                }
+            }
+            else if (wcscmp(L"gamepad.xinput.overlay.toggle-2", key.c_str())==0) {
+                int what = xi_name_to_number(value.c_str());
+                if (what != -1) {
+                    _xi_overlay_toggle_2 = what;
+                }
+            }
+            else if (wcscmp(L"gamepad.xinput.overlay.next-module", key.c_str())==0) {
+                int what = xi_name_to_number(value.c_str());
+                if (what != -1) {
+                    _xi_overlay_next_module = what;
                 }
             }
 
             p += wcslen(p) + 1;
         }
+
+        _gamepad_overlay_poll_interval_msec = GetPrivateProfileInt(_section_name.c_str(),
+            L"gamepad.overlay.poll-interval-msec", _gamepad_overlay_poll_interval_msec,
+            gamepad_ini);
+
+        _gamepad_poll_interval_msec = GetPrivateProfileInt(_section_name.c_str(),
+            L"gamepad.poll-interval-msec", _gamepad_poll_interval_msec,
+            gamepad_ini);
+
+        _dinput_enabled = GetPrivateProfileInt(_section_name.c_str(),
+            L"gamepad.dinput.enabled", _dinput_enabled,
+            gamepad_ini);
+
+        _xinput_enabled = GetPrivateProfileInt(_section_name.c_str(),
+            L"gamepad.xinput.enabled", _xinput_enabled,
+            gamepad_ini);
     }
-    bool lookup(DWORD dwType, int value, BYTE* vkey) {
+
+    bool lookup_di(DWORD dwType, int value, BYTE* vkey) {
         uint64_t key = (((uint64_t)dwType << 32) & 0xffffffff00000000L ) | ((uint64_t)value & 0x00000000ffffffffL);
-        unordered_map<uint64_t,gamepad_input_mapping_t>::iterator it;
-        it = _map.find(key);
-        if (it != _map.end()) {
+        unordered_map<uint64_t,gamepad_dinput_mapping_t>::iterator it;
+        it = _map_di.find(key);
+        if (it != _map_di.end()) {
+            *vkey = it->second.vkey;
+            return true;
+        }
+        return false;
+    }
+
+    bool lookup_xi(int what, int value, BYTE* vkey) {
+        uint64_t key = (((uint64_t)what << 32) & 0xffffffff00000000L ) | ((uint64_t)value & 0x00000000ffffffffL);
+        unordered_map<uint64_t,gamepad_xinput_mapping_t>::iterator it;
+        it = _map_xi.find(key);
+        if (it != _map_xi.end()) {
             *vkey = it->second.vkey;
             return true;
         }
@@ -606,12 +764,6 @@ public:
     bool _free_side_select;
     bool _overlay_enabled;
     bool _overlay_on_from_start;
-    bool _overlay_controlled_by_gamepad;
-    int _gamepad_poll_interval_msec;
-    int _gamepad_overlay_poll_interval_msec;
-    int _gamepad_overlay_toggle_1;
-    int _gamepad_overlay_toggle_2;
-    int _gamepad_overlay_next_module;
     wstring _overlay_font;
     DWORD _overlay_text_color;
     DWORD _overlay_background_color;
@@ -666,7 +818,6 @@ public:
                  _free_side_select(false),
                  _overlay_enabled(false),
                  _overlay_on_from_start(false),
-                 _overlay_controlled_by_gamepad(true),
                  _overlay_font(DEFAULT_OVERLAY_FONT),
                  _overlay_text_color(DEFAULT_OVERLAY_TEXT_COLOR),
                  _overlay_background_color(DEFAULT_OVERLAY_BACKGROUND_COLOR),
@@ -675,11 +826,6 @@ public:
                  _overlay_location(DEFAULT_OVERLAY_LOCATION),
                  _overlay_vkey_toggle(DEFAULT_OVERLAY_VKEY_TOGGLE),
                  _overlay_vkey_next_module(DEFAULT_OVERLAY_VKEY_NEXT_MODULE),
-                 _gamepad_poll_interval_msec(DEFAULT_GAMEPAD_POLL_INTERVAL_MSEC),
-                 _gamepad_overlay_poll_interval_msec(DEFAULT_GAMEPAD_OVERLAY_POLL_INTERVAL_MSEC),
-                 _gamepad_overlay_toggle_1(DEFAULT_GAMEPAD_OVERLAY_TOGGLE_1),
-                 _gamepad_overlay_toggle_2(DEFAULT_GAMEPAD_OVERLAY_TOGGLE_2),
-                 _gamepad_overlay_next_module(DEFAULT_GAMEPAD_OVERLAY_NEXT_MODULE),
                  _vkey_reload_1(DEFAULT_VKEY_RELOAD_1),
                  _vkey_reload_2(DEFAULT_VKEY_RELOAD_2),
                  _key_cache_ttl_sec(10),
@@ -794,24 +940,6 @@ public:
                     _overlay_vkey_next_module = v;
                 }
             }
-            else if (wcscmp(L"gamepad.overlay.toggle-1", key.c_str())==0) {
-                int v;
-                if (swscanf(value.c_str(), L"%x", &v)==1) {
-                    _gamepad_overlay_toggle_1 = v;
-                }
-            }
-            else if (wcscmp(L"gamepad.overlay.toggle-2", key.c_str())==0) {
-                int v;
-                if (swscanf(value.c_str(), L"%x", &v)==1) {
-                    _gamepad_overlay_toggle_2 = v;
-                }
-            }
-            else if (wcscmp(L"gamepad.overlay.next-module", key.c_str())==0) {
-                int v;
-                if (swscanf(value.c_str(), L"%x", &v)==1) {
-                    _gamepad_overlay_next_module = v;
-                }
-            }
             else if (wcscmp(L"vkey.reload-1", key.c_str())==0) {
                 int v;
                 if (swscanf(value.c_str(), L"%x", &v)==1) {
@@ -917,20 +1045,8 @@ public:
             L"overlay.on-from-start", _overlay_on_from_start,
             config_ini);
 
-        _overlay_controlled_by_gamepad = GetPrivateProfileInt(_section_name.c_str(),
-            L"overlay.gamepad.enabled", _overlay_controlled_by_gamepad,
-            config_ini);
-
         _overlay_font_size = GetPrivateProfileInt(_section_name.c_str(),
             L"overlay.font-size", _overlay_font_size,
-            config_ini);
-
-        _gamepad_overlay_poll_interval_msec = GetPrivateProfileInt(_section_name.c_str(),
-            L"gamepad.overlay.poll-interval-msec", _gamepad_overlay_poll_interval_msec,
-            config_ini);
-
-        _gamepad_poll_interval_msec = GetPrivateProfileInt(_section_name.c_str(),
-            L"gamepad.poll-interval-msec", _gamepad_poll_interval_msec,
             config_ini);
 
         _livecpk_enabled = GetPrivateProfileInt(_section_name.c_str(),
@@ -1269,8 +1385,8 @@ static bool is_pes(wchar_t* name, wstring** match)
 
 void set_controller_poll_delay() {
     _controller_poll_delay = (_overlay_on) ?
-        _config->_gamepad_overlay_poll_interval_msec :
-        _config->_gamepad_poll_interval_msec;
+        _gamepad_config->_gamepad_overlay_poll_interval_msec :
+        _gamepad_config->_gamepad_poll_interval_msec;
 }
 
 BOOL sider_device_enum_callback(LPCDIDEVICEINSTANCE lppdi, LPVOID pvRef)
@@ -1288,17 +1404,17 @@ BOOL sider_object_enum_callback(LPCDIDEVICEOBJECTINSTANCE lpddoi, LPVOID pvRef)
     memcpy(&ddoi, lpddoi,  sizeof(ddoi));
     _di_objects.push_back(ddoi);
     // toggle 1
-    if (ddoi.dwType == _config->_gamepad_overlay_toggle_1) {
+    if (ddoi.dwType == _gamepad_config->_di_overlay_toggle_1) {
         _di_overlay_toggle1.dwType = ddoi.dwType;
         _di_overlay_toggle1.dwOfs = ddoi.dwOfs;
     }
     // toggle 2
-    if (ddoi.dwType == _config->_gamepad_overlay_toggle_2) {
+    if (ddoi.dwType == _gamepad_config->_di_overlay_toggle_2) {
         _di_overlay_toggle2.dwType = ddoi.dwType;
         _di_overlay_toggle2.dwOfs = ddoi.dwOfs;
     }
     // next module
-    if (ddoi.dwType == _config->_gamepad_overlay_next_module) {
+    if (ddoi.dwType == _gamepad_config->_di_overlay_next_module) {
         _di_module_switch.dwType = ddoi.dwType;
         _di_module_switch.dwOfs = ddoi.dwOfs;
     }
@@ -1839,7 +1955,7 @@ void module_key_down(module_t *m, int vkey)
     }
 }
 
-void module_gamepad_input(module_t *m, struct di_change_t *changes, size_t len)
+void module_gamepad_dinput(module_t *m, struct di_change_t *changes, size_t len)
 {
     if (m->evt_gamepad_input != 0) {
         EnterCriticalSection(&_cs);
@@ -1861,14 +1977,60 @@ void module_gamepad_input(module_t *m, struct di_change_t *changes, size_t len)
         LeaveCriticalSection(&_cs);
     }
     else if (m->evt_key_down != 0) {
-        // check global gamepad input mapping
+        // check global gamepad dinput mapping
         for (int i=0; i<len; i++) {
             BYTE vkey;
-            bool mapped = _gamepad_config->lookup(changes[i].dwType, changes[i].state, &vkey);
+            bool mapped = _gamepad_config->lookup_di(changes[i].dwType, changes[i].state, &vkey);
             if (!mapped) {
                 continue;
             }
             DBG(256) logu_("for input event (0x%x,%d) found mapped vkey: 0x%x\n", changes[i].dwType, changes[i].state, vkey);
+            EnterCriticalSection(&_cs);
+            lua_pushvalue(m->L, m->evt_key_down);
+            lua_xmove(m->L, L, 1);
+            // push params
+            lua_pushvalue(L, 1); // ctx
+            lua_pushinteger(L, vkey); // ctx
+            if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+                const char *err = luaL_checkstring(L, -1);
+                logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+                lua_pop(L, 1);
+            }
+            LeaveCriticalSection(&_cs);
+        }
+    }
+}
+
+void module_gamepad_xinput(module_t *m, struct xi_change_t *changes, size_t len)
+{
+    if (m->evt_gamepad_input != 0) {
+        EnterCriticalSection(&_cs);
+        lua_pushvalue(m->L, m->evt_gamepad_input);
+        lua_xmove(m->L, L, 1);
+        // push params
+        lua_pushvalue(L, 1); // ctx
+        lua_newtable(L); // table of changes
+        for (int i=0; i<len; i++) {
+            lua_pushstring(L, _xi_utf8_names[changes[i].what]);
+            lua_pushinteger(L, changes[i].state);
+            lua_settable(L, -3);
+        }
+        if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+            const char *err = luaL_checkstring(L, -1);
+            logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+            lua_pop(L, 1);
+        }
+        LeaveCriticalSection(&_cs);
+    }
+    else if (m->evt_key_down != 0) {
+        // check global gamepad xinput mapping
+        for (int i=0; i<len; i++) {
+            BYTE vkey;
+            bool mapped = _gamepad_config->lookup_xi(changes[i].what, changes[i].state, &vkey);
+            if (!mapped) {
+                continue;
+            }
+            DBG(256) logu_("for input event (%s,%d) found mapped vkey: 0x%x\n", _xi_utf8_names[changes[i].what], changes[i].state, vkey);
             EnterCriticalSection(&_cs);
             lua_pushvalue(m->L, m->evt_key_down);
             lua_xmove(m->L, L, 1);
@@ -2552,8 +2714,8 @@ void clear_overlay_texture() {
     memset(&_overlay_image, 0, sizeof(overlay_image_t));
 }
 
-int get_stick_state(int state) {
-    float val = (state - 32767)/32767.0f;
+int get_stick_state(int state, int middle) {
+    float val = (state - middle)/32767.0f;
     if (val < -0.74) { return -1; }
     else if (val > 0.74) { return 1; }
     return 0;
@@ -2562,134 +2724,281 @@ int get_stick_state(int state) {
 DWORD direct_input_poll(void *param) {
     HRESULT hr;
     while (_controller_poll) {
-        hr = g_IDirectInputDevice8->Acquire();
-        if (SUCCEEDED(hr)) {
-            memcpy(_prev_controller_buttons, _controller_buttons, sizeof(_controller_buttons));
-            hr = g_IDirectInputDevice8->GetDeviceState(sizeof(_controller_buttons), _controller_buttons);
+        bool input_processing_done = false;
+
+        if (_gamepad_config->_xinput_enabled) {
+            // read XInput controller state
+            DWORD dwResult;
+            for (DWORD i=0; i<XUSER_MAX_COUNT; i++ ) {
+                XINPUT_STATE xstate;
+                ZeroMemory( &xstate, sizeof(XINPUT_STATE) );
+                // Simply get the state of the controller from XInput.
+                dwResult = XInputGetState( i, &xstate );
+                if( dwResult == ERROR_SUCCESS ) {
+                    // Controller is connected
+                    xi_state_t state;
+                    state.buttons[0] = (xstate.Gamepad.wButtons & 0x1000) ? 1 : 0;
+                    state.buttons[1] = (xstate.Gamepad.wButtons & 0x2000) ? 1 : 0;
+                    state.buttons[2] = (xstate.Gamepad.wButtons & 0x4000) ? 1 : 0;
+                    state.buttons[3] = (xstate.Gamepad.wButtons & 0x8000) ? 1 : 0;
+                    state.buttons[4] = (xstate.Gamepad.wButtons & 0x0100) ? 1 : 0;
+                    state.buttons[5] = (xstate.Gamepad.wButtons & 0x0200) ? 1 : 0;
+                    state.buttons[6] = (xstate.Gamepad.wButtons & 0x0010) ? 1 : 0;
+                    state.buttons[7] = (xstate.Gamepad.wButtons & 0x0020) ? 1 : 0;
+                    state.buttons[8] = (xstate.Gamepad.wButtons & 0x0040) ? 1 : 0;
+                    state.buttons[9] = (xstate.Gamepad.wButtons & 0x0080) ? 1 : 0;
+                    state.left_trigger = (xstate.Gamepad.bLeftTrigger > 100) ? 1 : 0;
+                    state.right_trigger = (xstate.Gamepad.bRightTrigger > 100) ? 1 : 0;
+                    state.left_stick_x = get_stick_state(xstate.Gamepad.sThumbLX, 128);
+                    state.left_stick_y = get_stick_state(xstate.Gamepad.sThumbLY, 128);
+                    state.right_stick_x = get_stick_state(xstate.Gamepad.sThumbRX, 128);
+                    state.right_stick_y = get_stick_state(xstate.Gamepad.sThumbRY, 128);
+                    state.dpad = xstate.Gamepad.wButtons & 0x000f;
+
+                    if (memcmp(&state, &_prev_xi_state, sizeof(xi_state_t))!=0) {
+                        _xi_changes_len = 0;
+                        for (int i=0; i<10; i++) {
+                            if (_prev_xi_state.buttons[i] != state.buttons[i]) {
+                                _xi_changes[_xi_changes_len].state = state.buttons[i];
+                                _xi_changes[_xi_changes_len].what = i;
+                                _xi_changes_len++;
+                            }
+                        }
+                        if (_prev_xi_state.left_trigger != state.left_trigger) {
+                            _xi_changes[_xi_changes_len].state = state.left_trigger;
+                            _xi_changes[_xi_changes_len].what = 10;
+                            _xi_changes_len++;
+                        }
+                        if (_prev_xi_state.right_trigger != state.right_trigger) {
+                            _xi_changes[_xi_changes_len].state = state.right_trigger;
+                            _xi_changes[_xi_changes_len].what = 11;
+                            _xi_changes_len++;
+                        }
+                        if (_prev_xi_state.left_stick_x != state.left_stick_x) {
+                            _xi_changes[_xi_changes_len].state = state.left_stick_x;
+                            _xi_changes[_xi_changes_len].what = 12;
+                            _xi_changes_len++;
+                        }
+                        if (_prev_xi_state.left_stick_y != state.left_stick_y) {
+                            _xi_changes[_xi_changes_len].state = state.left_stick_y;
+                            _xi_changes[_xi_changes_len].what = 13;
+                            _xi_changes_len++;
+                        }
+                        if (_prev_xi_state.right_stick_x != state.right_stick_x) {
+                            _xi_changes[_xi_changes_len].state = state.right_stick_x;
+                            _xi_changes[_xi_changes_len].what = 14;
+                            _xi_changes_len++;
+                        }
+                        if (_prev_xi_state.right_stick_y != state.right_stick_y) {
+                            _xi_changes[_xi_changes_len].state = state.right_stick_y;
+                            _xi_changes[_xi_changes_len].what = 15;
+                            _xi_changes_len++;
+                        }
+                        if (_prev_xi_state.dpad != state.dpad) {
+                            _xi_changes[_xi_changes_len].state = state.dpad;
+                            _xi_changes[_xi_changes_len].what = 16;
+                            _xi_changes_len++;
+                        }
+
+                        // test for events
+                        bool handled(false);
+
+                        // overlay toggle
+                        BYTE was_b1 = *(BYTE*)((BYTE*)&_prev_xi_state + _gamepad_config->_xi_overlay_toggle_1);
+                        BYTE was_b2 = *(BYTE*)((BYTE*)&_prev_xi_state + _gamepad_config->_xi_overlay_toggle_2);
+                        BYTE b1 = *(BYTE*)((BYTE*)&state + _gamepad_config->_xi_overlay_toggle_1);
+                        BYTE b2 = *(BYTE*)((BYTE*)&state + _gamepad_config->_xi_overlay_toggle_2);
+                        if (b1==1 && b2==1 && (was_b1!=b1 || was_b2!=b2)) {
+                            _overlay_on = !_overlay_on;
+                            set_controller_poll_delay();
+                            handled = true;
+                            DBG(64) logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
+                        }
+                        else {
+                            // module switch
+                            BYTE was_b = *(BYTE*)((BYTE*)&_prev_xi_state + _gamepad_config->_xi_overlay_next_module);
+                            BYTE b = *(BYTE*)((BYTE*)&state + _gamepad_config->_xi_overlay_next_module);
+                            if (b==1 && was_b!=b) {
+                                if (_overlay_on) {
+                                    sider_switch_overlay_to_next_module();
+                                    handled = true;
+                                }
+                            }
+                        }
+
+                        // check states
+                        if (_overlay_on && !handled && _curr_overlay_m != _modules.end()) {
+                            if (_xi_changes_len>0) {
+                                DBG(256) {
+                                    logu_("number of input changes: %d\n", _xi_changes_len);
+                                    for (int i=0; i<_xi_changes_len; i++) {
+                                        logu_("change: what=0x%x, state=%d\n", _xi_changes[i].what, _xi_changes[i].state);
+                                    }
+                                }
+                                // lua callback: generate input-change event
+                                module_t *m = *_curr_overlay_m;
+                                module_gamepad_xinput(m, _xi_changes, _xi_changes_len);
+                            }
+                        }
+                    }
+                    memcpy(&_prev_xi_state, &state, sizeof(xi_state_t));
+                    
+                    DBG(256) {
+                        logu_("----------------------------------------\n");
+                        logu_("state.Gamepad.wButtons = 0x%04x\n", xstate.Gamepad.wButtons);
+                        logu_("state.Gamepad.LeftTrigger = 0x%02x\n", xstate.Gamepad.bLeftTrigger);
+                        logu_("state.Gamepad.RightTrigger = 0x%02x\n", xstate.Gamepad.bRightTrigger);
+                        logu_("state.Gamepad.sThumbLX = %d\n", xstate.Gamepad.sThumbLX);
+                        logu_("state.Gamepad.sThumbLY = %d\n", xstate.Gamepad.sThumbLY);
+                        logu_("state.Gamepad.sThumbRX = %d\n", xstate.Gamepad.sThumbRX);
+                        logu_("state.Gamepad.sThumbRY = %d\n", xstate.Gamepad.sThumbRY);
+                    }
+                    
+                    // successfully read controller. We're done
+                    input_processing_done = true;
+                }
+                else {
+                    // Controller is not connected
+                    //logu_("controller %d is not connected\n", i);
+                }
+            }
+        }
+
+        if (input_processing_done) {
+            Sleep(_controller_poll_delay);
+            continue;
+        }
+
+        if (_has_controller && _gamepad_config->_dinput_enabled) {
+            hr = g_IDirectInputDevice8->Acquire();
             if (SUCCEEDED(hr)) {
-                // log changes
-                DBG(64) {
-                    if (memcmp(_prev_controller_buttons, _controller_buttons, sizeof(_controller_buttons))!=0) {
-                        logu_("was: ");
+                memcpy(_prev_controller_buttons, _controller_buttons, sizeof(_controller_buttons));
+                hr = g_IDirectInputDevice8->GetDeviceState(sizeof(_controller_buttons), _controller_buttons);
+                if (SUCCEEDED(hr)) {
+                    // log changes
+                    DBG(64) {
+                        if (memcmp(_prev_controller_buttons, _controller_buttons, sizeof(_controller_buttons))!=0) {
+                            logu_("was: ");
+                            list<DIDEVICEOBJECTINSTANCE>::iterator it;
+                            for (it = _di_objects.begin(); it != _di_objects.end(); it++) {
+                                if (it->dwType & DIDFT_AXIS) {
+                                    log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, *(DWORD*)(_prev_controller_buttons + it->dwOfs));
+                                }
+                                else if (it->dwType & DIDFT_POV) {
+                                    log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, *(DWORD*)(_prev_controller_buttons + it->dwOfs));
+                                }
+                                else {
+                                    log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, _prev_controller_buttons[it->dwOfs]);
+                                }
+                            }
+                            logu_("\n");
+                            logu_("now: ");
+                            for (it = _di_objects.begin(); it != _di_objects.end(); it++) {
+                                if (it->dwType & DIDFT_AXIS) {
+                                    log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, *(DWORD*)(_controller_buttons + it->dwOfs));
+                                }
+                                else if (it->dwType & DIDFT_POV) {
+                                    log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, *(DWORD*)(_controller_buttons + it->dwOfs));
+                                }
+                                else {
+                                    log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, _controller_buttons[it->dwOfs]);
+                                }
+                            }
+                            logu_("\n");
+                        }
+                    }
+
+                    // test for events
+                    bool handled(false);
+
+                    // overlay toggle
+                    BYTE was_b1 = *(BYTE*)(_prev_controller_buttons + _di_overlay_toggle1.dwOfs);
+                    BYTE was_b2 = *(BYTE*)(_prev_controller_buttons + _di_overlay_toggle2.dwOfs);
+                    BYTE b1 = *(BYTE*)(_controller_buttons + _di_overlay_toggle1.dwOfs);
+                    BYTE b2 = *(BYTE*)(_controller_buttons + _di_overlay_toggle2.dwOfs);
+                    if (b1==128 && b2==128 && (was_b1!=b1 || was_b2!=b2)) {
+                        _overlay_on = !_overlay_on;
+                        set_controller_poll_delay();
+                        handled = true;
+                        DBG(64) logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
+                    }
+                    else {
+                        // module switch
+                        BYTE was_b = *(BYTE*)(_prev_controller_buttons + _di_module_switch.dwOfs);
+                        BYTE b = *(BYTE*)(_controller_buttons + _di_module_switch.dwOfs);
+                        if (b==128 && was_b!=b) {
+                            if (_overlay_on) {
+                                sider_switch_overlay_to_next_module();
+                                handled = true;
+                            }
+                        }
+                    }
+
+                    // check states
+                    if (_overlay_on && !handled && _curr_overlay_m != _modules.end()) {
+                        _di_changes_len = 0;
                         list<DIDEVICEOBJECTINSTANCE>::iterator it;
                         for (it = _di_objects.begin(); it != _di_objects.end(); it++) {
                             if (it->dwType & DIDFT_AXIS) {
-                                log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, *(DWORD*)(_prev_controller_buttons + it->dwOfs));
+                                // sticks/d-pad
+                                int was = get_stick_state(*(int*)(_prev_controller_buttons + it->dwOfs), 32767);
+                                int now = get_stick_state(*(int*)(_controller_buttons + it->dwOfs), 32767);
+                                if (was != now) {
+                                    _di_changes[_di_changes_len].state = now;
+                                    _di_changes[_di_changes_len].dwType = it->dwType;
+                                    _di_changes_len++;
+                                }
                             }
                             else if (it->dwType & DIDFT_POV) {
-                                log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, *(DWORD*)(_prev_controller_buttons + it->dwOfs));
+                                // rotational stick
+                                int was = *(int*)(_prev_controller_buttons + it->dwOfs);
+                                int now = *(int*)(_controller_buttons + it->dwOfs);
+                                if (was != now) {  // degree-like: 0/4500/9000/13500/27000/31500
+                                    int state = (now == -1) ? now : now / 100;
+                                    _di_changes[_di_changes_len].state = state;
+                                    _di_changes[_di_changes_len].dwType = it->dwType;
+                                    _di_changes_len++;
+                                }
                             }
                             else {
-                                log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, _prev_controller_buttons[it->dwOfs]);
+                                // buttons
+                                BYTE was = _prev_controller_buttons[it->dwOfs];
+                                BYTE now = _controller_buttons[it->dwOfs];
+                                if (was != now) { // down/up: 128/0
+                                    int state = now / 128;
+                                    _di_changes[_di_changes_len].state = state;
+                                    _di_changes[_di_changes_len].dwType = it->dwType;
+                                    _di_changes_len++;
+                                }
                             }
                         }
-                        logu_("\n");
-                        logu_("now: ");
-                        for (it = _di_objects.begin(); it != _di_objects.end(); it++) {
-                            if (it->dwType & DIDFT_AXIS) {
-                                log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, *(DWORD*)(_controller_buttons + it->dwOfs));
+
+                        if (_di_changes_len>0) {
+                            DBG(256) {
+                                logu_("number of input changes: %d\n", _di_changes_len);
+                                for (int i=0; i<_di_changes_len; i++) {
+                                    logu_("change: dwType=0x%x, state=%d\n", _di_changes[i].dwType, _di_changes[i].state);
+                                }
                             }
-                            else if (it->dwType & DIDFT_POV) {
-                                log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, *(DWORD*)(_controller_buttons + it->dwOfs));
-                            }
-                            else {
-                                log_(L"|%s (0x%x): %d\n", it->tszName, it->dwType, _controller_buttons[it->dwOfs]);
-                            }
+                            // lua callback: generate input-change event
+                            module_t *m = *_curr_overlay_m;
+                            module_gamepad_dinput(m, _di_changes, _di_changes_len);
                         }
-                        logu_("\n");
                     }
-                }
-
-                // test for events
-                bool handled(false);
-
-                // overlay toggle
-                BYTE was_b1 = *(BYTE*)(_prev_controller_buttons + _di_overlay_toggle1.dwOfs);
-                BYTE was_b2 = *(BYTE*)(_prev_controller_buttons + _di_overlay_toggle2.dwOfs);
-                BYTE b1 = *(BYTE*)(_controller_buttons + _di_overlay_toggle1.dwOfs);
-                BYTE b2 = *(BYTE*)(_controller_buttons + _di_overlay_toggle2.dwOfs);
-                if (b1==128 && b2==128 && (was_b1!=b1 || was_b2!=b2)) {
-                    _overlay_on = !_overlay_on;
-                    set_controller_poll_delay();
-                    handled = true;
-                    DBG(64) logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
                 }
                 else {
-                    // module switch
-                    BYTE was_b = *(BYTE*)(_prev_controller_buttons + _di_module_switch.dwOfs);
-                    BYTE b = *(BYTE*)(_controller_buttons + _di_module_switch.dwOfs);
-                    if (b==128 && was_b!=b) {
-                        if (_overlay_on) {
-                            sider_switch_overlay_to_next_module();
-                            handled = true;
-                        }
+                    if (hr == DIERR_INVALIDPARAM) {
+                        logu_("failed to get device state: DIERR_INVALIDPARAM\n");
+                    }
+                    else if (hr == DIERR_NOTACQUIRED) {
+                        logu_("failed to get device state: DIERR_NOTACQUIRED\n");
+                    }
+                    else {
+                        logu_("failed to get device state: %x\n", hr);
                     }
                 }
-
-                // check states
-                if (_overlay_on && !handled && _curr_overlay_m != _modules.end()) {
-                    _di_changes_len = 0;
-                    list<DIDEVICEOBJECTINSTANCE>::iterator it;
-                    for (it = _di_objects.begin(); it != _di_objects.end(); it++) {
-                        if (it->dwType & DIDFT_AXIS) {
-                            // sticks/d-pad
-                            int was = get_stick_state(*(int*)(_prev_controller_buttons + it->dwOfs));
-                            int now = get_stick_state(*(int*)(_controller_buttons + it->dwOfs));
-                            if (was != now) {
-                                _di_changes[_di_changes_len].state = now;
-                                _di_changes[_di_changes_len].dwType = it->dwType;
-                                _di_changes_len++;
-                            }
-                        }
-                        else if (it->dwType & DIDFT_POV) {
-                            // rotational stick
-                            int was = *(int*)(_prev_controller_buttons + it->dwOfs);
-                            int now = *(int*)(_controller_buttons + it->dwOfs);
-                            if (was != now) {  // degree-like: 0/4500/9000/13500/27000/31500
-                                int state = (now == -1) ? now : now / 100;
-                                _di_changes[_di_changes_len].state = state;
-                                _di_changes[_di_changes_len].dwType = it->dwType;
-                                _di_changes_len++;
-                            }
-                        }
-                        else {
-                            // buttons
-                            BYTE was = _prev_controller_buttons[it->dwOfs];
-                            BYTE now = _controller_buttons[it->dwOfs];
-                            if (was != now) { // down/up: 128/0
-                                int state = now / 128;
-                                _di_changes[_di_changes_len].state = state;
-                                _di_changes[_di_changes_len].dwType = it->dwType;
-                                _di_changes_len++;
-                            }
-                        }
-                    }
-
-                    if (_di_changes_len>0) {
-                        DBG(256) {
-                            logu_("number of input changes: %d\n", _di_changes_len);
-                            for (int i=0; i<_di_changes_len; i++) {
-                                logu_("change: dwType=0x%x, state=%d\n", _di_changes[i].dwType, _di_changes[i].state);
-                            }
-                        }
-                        // lua callback: generate input-change event
-                        module_t *m = *_curr_overlay_m;
-                        module_gamepad_input(m, _di_changes, _di_changes_len);
-                    }
-                }
+                g_IDirectInputDevice8->Unacquire();
             }
-            else {
-                if (hr == DIERR_INVALIDPARAM) {
-                    logu_("failed to get device state: DIERR_INVALIDPARAM\n");
-                }
-                else if (hr == DIERR_NOTACQUIRED) {
-                    logu_("failed to get device state: DIERR_NOTACQUIRED\n");
-                }
-                else {
-                    logu_("failed to get device state: %x\n", hr);
-                }
-            }
-            g_IDirectInputDevice8->Unacquire();
         }
 
         Sleep(_controller_poll_delay);
@@ -4271,7 +4580,6 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"free.side.select = %d\n", _config->_free_side_select);
     log_(L"overlay.enabled = %d\n", _config->_overlay_enabled);
     log_(L"overlay.on-from-start = %d\n", _config->_overlay_on_from_start);
-    log_(L"overlay.gamepad.enabled = %d\n", _config->_overlay_controlled_by_gamepad);
     log_(L"overlay.font = %s\n", _config->_overlay_font.c_str());
     log_(L"overlay.text-color = 0x%08x\n", _config->_overlay_text_color);
     log_(L"overlay.background-color = 0x%08x\n", _config->_overlay_background_color);
@@ -4280,23 +4588,43 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"overlay.font-size = %d\n", _config->_overlay_font_size);
     log_(L"overlay.vkey.toggle = 0x%02x\n", _config->_overlay_vkey_toggle);
     log_(L"overlay.vkey.next-module = 0x%02x\n", _config->_overlay_vkey_next_module);
-    log_(L"gamepad.poll-interval-msec = %d\n", _config->_gamepad_poll_interval_msec);
-    log_(L"gamepad.overlay.poll-interval-msec = %d\n", _config->_gamepad_overlay_poll_interval_msec);
-    log_(L"gamepad.overlay.toggle-1 = 0x%x\n", _config->_gamepad_overlay_toggle_1);
-    log_(L"gamepad.overlay.toggle-2 = 0x%x\n", _config->_gamepad_overlay_toggle_2);
-    log_(L"gamepad.overlay.next-module = 0x%x\n", _config->_gamepad_overlay_next_module);
+    log_(L"gamepad.poll-interval-msec = %d\n", _gamepad_config->_gamepad_poll_interval_msec);
+    log_(L"gamepad.overlay.poll-interval-msec = %d\n", _gamepad_config->_gamepad_overlay_poll_interval_msec);
     log_(L"vkey.reload-1 = 0x%02x\n", _config->_vkey_reload_1);
     log_(L"vkey.reload-2 = 0x%02x\n", _config->_vkey_reload_2);
     log_(L"close.on.exit = %d\n", _config->_close_sider_on_exit);
     log_(L"match.minutes = %d\n", _config->_num_minutes);
 
     log_(L"--------------------------\n");
-    log_(L"Global input mapping: %d items\n", _gamepad_config->_map.size());
-    for (unordered_map<uint64_t,gamepad_input_mapping_t>::iterator it = _gamepad_config->_map.begin();
-            it != _gamepad_config->_map.end();
-            it++) {
-        log_(L"gamepad.input.mapping: 0x%016llx --> (0x%x,%d,0x%x)\n", it->first,
-            it->second.dwType, it->second.value, it->second.vkey);
+    log_(L"gamepad.dinput.enabled = %d\n", _gamepad_config->_dinput_enabled);
+    if (_gamepad_config->_dinput_enabled) {
+        log_(L"gamepad.dinput.overlay.toggle-1 = 0x%x\n", _gamepad_config->_di_overlay_toggle_1);
+        log_(L"gamepad.dinput.overlay.toggle-2 = 0x%x\n", _gamepad_config->_di_overlay_toggle_2);
+        log_(L"gamepad.dinput.overlay.next-module = 0x%x\n", _gamepad_config->_di_overlay_next_module);
+        log_(L"--------------------------\n");
+        log_(L"Global input mapping (DirectInput): %d items\n", _gamepad_config->_map_di.size());
+        for (unordered_map<uint64_t,gamepad_dinput_mapping_t>::iterator it = _gamepad_config->_map_di.begin();
+                it != _gamepad_config->_map_di.end();
+                it++) {
+            log_(L"gamepad.dinput.mapping: 0x%016llx --> (0x%x,%d,0x%x)\n", it->first,
+                it->second.dwType, it->second.value, it->second.vkey);
+        }
+    }
+
+    log_(L"--------------------------\n");
+    log_(L"gamepad.xinput.enabled = %d\n", _gamepad_config->_xinput_enabled);
+    if (_gamepad_config->_xinput_enabled) {
+        log_(L"gamepad.xinput.overlay.toggle-1 = 0x%x\n", _gamepad_config->_xi_overlay_toggle_1);
+        log_(L"gamepad.xinput.overlay.toggle-2 = 0x%x\n", _gamepad_config->_xi_overlay_toggle_2);
+        log_(L"gamepad.xinput.overlay.next-module = 0x%x\n", _gamepad_config->_xi_overlay_next_module);
+        log_(L"--------------------------\n");
+        log_(L"Global input mapping (XInput): %d items\n", _gamepad_config->_map_xi.size());
+        for (unordered_map<uint64_t,gamepad_xinput_mapping_t>::iterator it = _gamepad_config->_map_xi.begin();
+                it != _gamepad_config->_map_xi.end();
+                it++) {
+            log_(L"gamepad.xinput.mapping: 0x%016llx --> (%s,%d,0x%x)\n", it->first,
+                _xi_utf8_names[it->second.what], it->second.value, it->second.vkey);
+        }
     }
 
     log_(L"--------------------------\n");
@@ -4329,6 +4657,7 @@ DWORD install_func(LPVOID thread_param) {
         }
 
         if (_install_func(h)) {
+            memset(&_prev_xi_state, 0, sizeof(xi_state_t));
             init_direct_input();
             init_lua_support();
             break;
@@ -4610,7 +4939,7 @@ void init_direct_input()
 {
     // initialize DirectInput
     g_IDirectInput8 = NULL;
-    if (!_config->_overlay_controlled_by_gamepad) {
+    if (!_gamepad_config->_dinput_enabled) {
         return;
     }
     if (SUCCEEDED(DirectInput8Create(

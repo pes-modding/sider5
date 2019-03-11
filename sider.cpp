@@ -5047,8 +5047,8 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
             }
 
             if (_is_game) {
-                if (_key_cache) { delete _key_cache; }
-                if (_rewrite_cache) { delete _rewrite_cache; }
+                log_(L"DLL detaching from (%s).\n", module_filename);
+                log_(L"Unmapping from PES.\n");
 
                 if (_controller_poll_handle != INVALID_HANDLE_VALUE) {
                     log_(L"Waiting for controller poll thread to finish ...\n");
@@ -5069,10 +5069,10 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
                     g_IDirectInput8 = NULL;
                 }
 
-                log_(L"DLL detaching from (%s).\n", module_filename);
-                log_(L"Unmapping from PES.\n");
-
                 if (L) { lua_close(L); }
+
+                if (_key_cache) { delete _key_cache; }
+                if (_rewrite_cache) { delete _rewrite_cache; }
 
                 // tell sider.exe to close
                 if (_config->_close_sider_on_exit) {
@@ -5082,6 +5082,7 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
                         log_(L"Posted message for sider.exe to quit\n");
                     }
                 }
+                log_(L"All done.\n");
                 close_log_();
                 DeleteCriticalSection(&_cs);
                 DeleteCriticalSection(&_tcs);

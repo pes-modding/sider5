@@ -15,7 +15,7 @@ LPZLIB=soft\zlib123-dll\dll_x64
 ZLIBINC=/I soft\zlib123-dll\include
 
 # 4731: warning about ebp modification
-CFLAGS=/nologo /Od /EHsc /wd4731 $(EXTRA_CFLAGS)
+CFLAGS=/nologo /Od /EHsc /wd4731 /D_WIN32_WINNT=0x601 $(EXTRA_CFLAGS)
 LFLAGS=/NOLOGO
 LIBS=user32.lib gdi32.lib comctl32.lib version.lib ole32.lib
 

@@ -2803,9 +2803,9 @@ DWORD direct_input_poll(void *param) {
                         if (_overlay_on && !handled && _curr_overlay_m != _modules.end()) {
                             if (_xi_changes_len>0) {
                                 DBG(256) {
-                                    logu_("number of input changes: %d\n", _xi_changes_len);
+                                    logu_("XInput:: number of input changes: %d\n", _xi_changes_len);
                                     for (int i=0; i<_xi_changes_len; i++) {
-                                        logu_("change: what=0x%x, state=%d\n", _xi_changes[i].what, _xi_changes[i].state);
+                                        logu_("XInput:: change: what=%s, state=%d\n", _xi_utf8_names[_xi_changes[i].what], _xi_changes[i].state);
                                     }
                                 }
                                 // lua callback: generate input-change event
@@ -2960,9 +2960,9 @@ DWORD direct_input_poll(void *param) {
 
                         if (_xi_changes_len>0) {
                             DBG(256) {
-                                logu_("number of input changes: %d\n", _xi_changes_len);
+                                logu_("DirectInput:: number of input changes: %d\n", _xi_changes_len);
                                 for (int i=0; i<_xi_changes_len; i++) {
-                                    logu_("change: what=%s, state=%d\n", _xi_utf8_names[_xi_changes[i].what], _xi_changes[i].state);
+                                    logu_("DirectInput:: change: what=%s, state=%d\n", _xi_utf8_names[_xi_changes[i].what], _xi_changes[i].state);
                                 }
                             }
                             // lua callback: generate input-change event

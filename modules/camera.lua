@@ -3,13 +3,13 @@
 
 camera module
 Game research by: nesa24
-Requires: sider.dll 5.1.0
+Requires: sider.dll 5.1.0+ (5.2.1+ for gamepad support)
 
 =========================
 --]]
 
 local m = {}
-m.version = "1.5"
+m.version = "2.0"
 local hex = memory.hex
 local settings
 
@@ -18,6 +18,9 @@ local PREV_PROP_KEY = 0x39
 local NEXT_PROP_KEY = 0x30
 local PREV_VALUE_KEY = 0xbd
 local NEXT_VALUE_KEY = 0xbb
+
+local delta = 0
+local frame_count = 0
 
 local overlay_curr = 1
 local overlay_states = {
@@ -126,7 +129,20 @@ function m.set_teams(ctx, home, away)
     apply_settings(ctx, true)
 end
 
+local function repeat_change(ctx, after_num_frames, change)
+    if change ~= 0 then
+        frame_count = frame_count + 1
+        if frame_count >= after_num_frames then
+            local s = overlay_states[overlay_curr]
+            settings[s.prop] = settings[s.prop] + change
+        end
+    end
+end
+
 function m.overlay_on(ctx)
+    -- repeat change from gamepad, if delta exists
+    repeat_change(ctx, 30, delta)
+    -- construct ui text
     for i,v in ipairs(overlay_states) do
         local s = overlay_states[i]
         local setting = string.format(s.ui, settings[s.prop])
@@ -136,8 +152,10 @@ function m.overlay_on(ctx)
             ui_lines[i] = string.format("\n     %s", setting)
         end
     end
-    return string.format("version %s\nKeys: [9][0] - choose setting, [-][+] - modify value, [8] - restore defaults%s",
-        m.version, table.concat(ui_lines))
+    return string.format([[version %s
+Keys: [9][0] - choose setting, [-][+] - modify value, [8] - restore defaults
+Gamepad: RS up/down - choose setting, RS left/right - modify value
+%s]], m.version, table.concat(ui_lines))
 end
 
 function m.key_down(ctx, vkey)
@@ -174,8 +192,42 @@ function m.key_down(ctx, vkey)
 end
 
 function m.gamepad_input(ctx, inputs)
-    -- ignore all gamepad input
-    -- only react to keyabord hotkeys
+    local v = inputs["RSy"]
+    if v then
+        if v == -1 and overlay_curr < #overlay_states then -- moving down
+            overlay_curr = overlay_curr + 1
+        elseif v == 1 and overlay_curr > 1 then -- moving up
+            overlay_curr = overlay_curr - 1
+        end
+    end
+
+    v = inputs["RSx"]
+    if v then
+        if v == -1 then -- moving left
+            local s = overlay_states[overlay_curr]
+            if s.decr ~= nil then
+                settings[s.prop] = settings[s.prop] + s.decr
+                -- set up the repeat change
+                delta = s.decr
+                frame_count = 0
+            elseif s.prevf ~= nil then
+                settings[s.prop] = s.prevf(settings[s.prop])
+            end
+        elseif v == 1 then -- moving right
+            local s = overlay_states[overlay_curr]
+            if s.decr ~= nil then
+                settings[s.prop] = settings[s.prop] + s.incr
+                -- set up the repeat change
+                delta = s.incr
+                frame_count = 0
+            elseif s.nextf ~= nil then
+                settings[s.prop] = s.nextf(settings[s.prop])
+            end
+        elseif v == 0 then -- stop change
+            delta = 0
+            apply_settings(ctx, false, true)
+        end
+    end
 end
 
 function m.init(ctx)

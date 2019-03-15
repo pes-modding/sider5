@@ -2699,17 +2699,34 @@ int get_stick_state(int state, int middle) {
 
 DWORD direct_input_poll(void *param) {
     HRESULT hr;
+    bool has_xinput(false);
+    bool has_dinput(false);
+    int xi_fail_count = 0;
+    int xi_skip_count = 0;
+    int di_fail_count = 0;
+    int di_skip_count = 0;
+    DWORD last_good_xi = 0;
+
+    int skips = 50;
+
     while (_controller_poll) {
         bool input_processing_done = false;
 
-        if (_gamepad_config->_xinput_enabled) {
+        // XInput
+
+        if (_gamepad_config->_xinput_enabled && xi_skip_count == 0) {
             // read XInput controller state
             DWORD dwResult;
-            for (DWORD i=0; i<XUSER_MAX_COUNT; i++ ) {
+            for (DWORD k=0; k<XUSER_MAX_COUNT; k++ ) {
+                // start with the last one that was successfully queried
+                int j = (last_good_xi + k) % 4;
+
+                DBG(512) log_(L"query XInput controller %d\n", j);
+
                 XINPUT_STATE xstate;
                 ZeroMemory( &xstate, sizeof(XINPUT_STATE) );
                 // Simply get the state of the controller from XInput.
-                dwResult = XInputGetState( i, &xstate );
+                dwResult = XInputGetState( j, &xstate );
                 if( dwResult == ERROR_SUCCESS ) {
                     // Controller is connected
                     xi_state_t state;
@@ -2831,6 +2848,8 @@ DWORD direct_input_poll(void *param) {
 
                     // successfully read controller. We're done
                     input_processing_done = true;
+                    xi_fail_count = 0;
+                    last_good_xi = k;
 
                     // only poll one XInput controller: do not query others
                     // that may be connected as well
@@ -2841,23 +2860,41 @@ DWORD direct_input_poll(void *param) {
                     //logu_("controller %d is not connected\n", i);
                 }
             }
+
+            if (!input_processing_done) {
+                xi_fail_count = xi_fail_count + 1;
+            }
+        }
+
+        if (xi_skip_count > 0) {
+            xi_skip_count--;
+        }
+        if (xi_fail_count >= 5) {
+            xi_fail_count--;
+            xi_skip_count = skips;
         }
 
         set_controller_poll_delay();
 
         if (input_processing_done) {
-            //log_(L"Sleep for %d msec\n", _controller_poll_delay);
+            DBG(512) log_(L"Sleep for %d msec\n", _controller_poll_delay);
             Sleep(_controller_poll_delay);
             continue;
         }
 
-        if (_has_controller && _gamepad_config->_dinput_enabled) {
+        // DirectInput
+
+        if (_has_controller && _gamepad_config->_dinput_enabled && di_skip_count == 0) {
+            DBG(512) log_(L"query DirectInput controller\n");
+
             hr = g_IDirectInputDevice8->Acquire();
             if (SUCCEEDED(hr)) {
                 memcpy(_prev_controller_buttons, _controller_buttons, sizeof(_controller_buttons));
                 hr = g_IDirectInputDevice8->GetDeviceState(sizeof(_controller_buttons), _controller_buttons);
                 if (SUCCEEDED(hr)) {
                     input_processing_done = true;
+                    di_fail_count = 0;
+
                     // log changes
                     DBG(64) {
                         if (memcmp(_prev_controller_buttons, _controller_buttons, sizeof(_controller_buttons))!=0) {
@@ -2989,15 +3026,23 @@ DWORD direct_input_poll(void *param) {
                 }
                 g_IDirectInputDevice8->Unacquire();
             }
+
+            if (!input_processing_done) {
+                di_fail_count = di_fail_count + 1;
+            }
         }
 
-        if (!input_processing_done) {
-            // sleep longer, since we seem to have no xinput controllers
-            // and no directinput controllers
-            _controller_poll_delay = 5000;
+        if (di_skip_count > 0) {
+            di_skip_count--;
+        }
+        if (di_fail_count >= 5) {
+            di_fail_count--;
+            di_skip_count = skips;
         }
 
-        //log_(L"Sleep for %d msec\n", _controller_poll_delay);
+        set_controller_poll_delay();
+
+        DBG(512) log_(L"Sleep for %d msec\n", _controller_poll_delay);
         Sleep(_controller_poll_delay);
     }
     logu_("Done polling DirectInput device\n");

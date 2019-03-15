@@ -135,6 +135,7 @@ local function repeat_change(ctx, after_num_frames, change)
         if frame_count >= after_num_frames then
             local s = overlay_states[overlay_curr]
             settings[s.prop] = settings[s.prop] + change
+            apply_settings(ctx, false, false) -- apply
         end
     end
 end
@@ -213,6 +214,7 @@ function m.gamepad_input(ctx, inputs)
             elseif s.prevf ~= nil then
                 settings[s.prop] = s.prevf(settings[s.prop])
             end
+            apply_settings(ctx, false, false) -- apply
         elseif v == 1 then -- moving right
             local s = overlay_states[overlay_curr]
             if s.decr ~= nil then
@@ -223,9 +225,10 @@ function m.gamepad_input(ctx, inputs)
             elseif s.nextf ~= nil then
                 settings[s.prop] = s.nextf(settings[s.prop])
             end
+            apply_settings(ctx, false, false) -- apply
         elseif v == 0 then -- stop change
             delta = 0
-            apply_settings(ctx, false, true)
+            apply_settings(ctx, false, true) -- apply and save
         end
     end
 end

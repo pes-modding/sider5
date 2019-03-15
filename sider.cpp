@@ -270,6 +270,7 @@ IDirectInputDevice8 *g_IDirectInputDevice8;
 GUID g_controller_guid_instance;
 bool _has_controller(false);
 bool _controller_prepped(false);
+bool _controller_poll_initialized(false);
 bool _controller_poll(false);
 int _controller_poll_delay(0);
 HANDLE _controller_poll_handle(INVALID_HANDLE_VALUE);
@@ -2044,7 +2045,6 @@ char *module_rewrite(module_t *m, const char *file_name)
 
 void module_read(module_t *m, const char *file_name, void *data, LONGLONG len, FILE_LOAD_INFO *fli)
 {
-    char *res(NULL);
     EnterCriticalSection(&_cs);
     lua_pushvalue(m->L, m->evt_lcpk_read);
     lua_xmove(m->L, L, 1);
@@ -2056,6 +2056,9 @@ void module_read(module_t *m, const char *file_name, void *data, LONGLONG len, F
     if (fli) {
         lua_pushinteger(L, fli->total_bytes_to_read);
         lua_pushinteger(L, fli->bytes_read_so_far);
+    } else {
+        lua_pushnil(L);
+        lua_pushnil(L);
     }
     if (lua_pcall(L, 6, 0, 0) != LUA_OK) {
         const char *err = luaL_checkstring(L, -1);
@@ -2783,7 +2786,6 @@ DWORD direct_input_poll(void *param) {
                         BYTE b2 = *(BYTE*)((BYTE*)&state + _gamepad_config->_overlay_toggle_2);
                         if (b1==1 && b2==1 && (was_b1!=b1 || was_b2!=b2)) {
                             _overlay_on = !_overlay_on;
-                            set_controller_poll_delay();
                             handled = true;
                             DBG(64) logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
                         }
@@ -2841,7 +2843,10 @@ DWORD direct_input_poll(void *param) {
             }
         }
 
+        set_controller_poll_delay();
+
         if (input_processing_done) {
+            //log_(L"Sleep for %d msec\n", _controller_poll_delay);
             Sleep(_controller_poll_delay);
             continue;
         }
@@ -2852,6 +2857,7 @@ DWORD direct_input_poll(void *param) {
                 memcpy(_prev_controller_buttons, _controller_buttons, sizeof(_controller_buttons));
                 hr = g_IDirectInputDevice8->GetDeviceState(sizeof(_controller_buttons), _controller_buttons);
                 if (SUCCEEDED(hr)) {
+                    input_processing_done = true;
                     // log changes
                     DBG(64) {
                         if (memcmp(_prev_controller_buttons, _controller_buttons, sizeof(_controller_buttons))!=0) {
@@ -2895,7 +2901,6 @@ DWORD direct_input_poll(void *param) {
                     BYTE b2 = *(BYTE*)(_controller_buttons + _di_overlay_toggle2.dwOfs);
                     if (b1!=0 && b2!=0 && (was_b1!=b1 || was_b2!=b2)) {
                         _overlay_on = !_overlay_on;
-                        set_controller_poll_delay();
                         handled = true;
                         DBG(64) logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
                     }
@@ -2986,6 +2991,13 @@ DWORD direct_input_poll(void *param) {
             }
         }
 
+        if (!input_processing_done) {
+            // sleep longer, since we seem to have no xinput controllers
+            // and no directinput controllers
+            _controller_poll_delay = 5000;
+        }
+
+        //log_(L"Sleep for %d msec\n", _controller_poll_delay);
         Sleep(_controller_poll_delay);
     }
     logu_("Done polling DirectInput device\n");
@@ -3021,6 +3033,17 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
         }
     }
 
+    if (!_controller_poll_initialized) {
+        _controller_poll_initialized = true;
+        if (_gamepad_config->_dinput_enabled || _gamepad_config->_xinput_enabled) {
+            _controller_poll = true;
+            DWORD thread_id;
+            _controller_poll_handle = CreateThread(NULL, 0, direct_input_poll, NULL, 0, &thread_id);
+            SetThreadPriority(_controller_poll_handle, THREAD_PRIORITY_LOWEST);
+            logu_("created controller poll thread: 0x%x\n", thread_id);
+        }
+    }
+
     if (_has_controller) {
         if (!_controller_prepped) {
             HRESULT hr;
@@ -3037,13 +3060,6 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
                 }
             }
             _controller_prepped = true;
-
-            // launch
-            _controller_poll = true;
-            DWORD thread_id;
-            _controller_poll_handle = CreateThread(NULL, 0, direct_input_poll, NULL, 0, &thread_id);
-            SetThreadPriority(_controller_poll_handle, THREAD_PRIORITY_LOWEST);
-            logu_("created controller poll thread: 0x%x\n", thread_id);
         }
     }
 
@@ -3371,6 +3387,9 @@ BOOL sider_read_file(
     //log_(L"ReadFile(%x, %p, %x, %x, %p)\n",
     //    hFile, lpBuffer, nNumberOfBytesToRead, *lpNumberOfBytesRead, lpOverlapped);
 
+    LONGLONG num_bytes_read = *lpNumberOfBytesRead;
+    num_bytes_read = 0x00000000ffffffffL & num_bytes_read;
+
     if (handle != INVALID_HANDLE_VALUE) {
         DBG(3) log_(L"read_file:: called ReadFile(%x, %p, %x, %x, %p)\n",
             hFile, lpBuffer, nNumberOfBytesToRead, *lpNumberOfBytesRead, lpOverlapped);
@@ -3389,10 +3408,10 @@ BOOL sider_read_file(
     }
 
     if (rs) {
-        LONGLONG num_bytes_read = *lpNumberOfBytesRead;
+        bool full_read = (fli) && (fli->bytes_read_so_far + num_bytes_read >= fli->total_bytes_to_read);
 
         // livecpk_read
-        if (_config->_lua_enabled) {
+        if (num_bytes_read > 0 && _config->_lua_enabled) {
             list<module_t*>::iterator i;
             for (i = _modules.begin(); i != _modules.end(); i++) {
                 module_t *m = *i;
@@ -3400,6 +3419,11 @@ BOOL sider_read_file(
                     module_read(m, rs->filename, lpBuffer, num_bytes_read, fli);
                 }
             }
+        }
+
+        if (full_read) {
+            DBG(1024) logu_("full read of: %s, buffer=%p, buffer2=%p, sz=0x%x (lpBuffer=%p, bytes_read=0x%x)\n",
+                rs->filename, fli->buffer, fli->buffer2, fli->total_bytes_to_read, lpBuffer, num_bytes_read);
         }
     }
 
@@ -3412,7 +3436,10 @@ void sider_mem_copy(BYTE *dst, LONGLONG dst_len, BYTE *src, LONGLONG src_len, st
     wstring *filename = NULL;
 
     // do the original copy operation
-    memcpy_s(dst, dst_len, src, src_len);
+    if (memcpy_s(dst, dst_len, src, src_len) != 0) {
+        // don't try anything, if original call failed
+        return;
+    }
 
     LONGLONG dst_len_used = dst_len;
 
@@ -3472,12 +3499,14 @@ void sider_mem_copy(BYTE *dst, LONGLONG dst_len, BYTE *src, LONGLONG src_len, st
                 BOOL result = ReadFile(handle, dst, src_len, &numberOfBytesRead, NULL);
 
                 DBG(3) log_(L"mem_copy:: called ReadFile(%x, %p, %x, %x, %p)\n",
-                    handle, dst, dst_len, &numberOfBytesRead, NULL);
+                    handle, dst, src_len, &numberOfBytesRead, NULL);
                 CloseHandle(handle);
 
                 dst_len_used = numberOfBytesRead;
             }
         }
+
+        bool full_read = (fli) && (fli->bytes_read_so_far + dst_len_used >= fli->total_bytes_to_read);
 
         // livecpk_read
         if (_config->_lua_enabled) {
@@ -3488,6 +3517,11 @@ void sider_mem_copy(BYTE *dst, LONGLONG dst_len, BYTE *src, LONGLONG src_len, st
                     module_read(m, rs->filename, dst, dst_len_used, fli);
                 }
             }
+        }
+
+        if (full_read) {
+            DBG(1024) logu_("full read of: %s, buffer=%p, buffer2=%p, sz=0x%x (lpBuffer=%p, bytes_read=0x%x)\n",
+                rs->filename, fli->buffer, fli->buffer2, fli->total_bytes_to_read, dst, dst_len_used);
         }
     }
 }
@@ -5020,7 +5054,6 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
                 log_(L"Filename match: %s\n", match->c_str());
 
                 _overlay_on = _config->_overlay_on_from_start;
-                set_controller_poll_delay();
                 _overlay_header = L"sider ";
                 _overlay_header += version;
                 memset(_overlay_text, 0, sizeof(_overlay_text));
@@ -5111,7 +5144,6 @@ LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam)
     if (code == HC_ACTION) {
         if (wParam == _config->_overlay_vkey_toggle && ((lParam & 0x80000000) != 0)) {
             _overlay_on = !_overlay_on;
-            set_controller_poll_delay();
             DBG(64) logu_("overlay: %s\n", (_overlay_on)?"ON":"OFF");
             if (_overlay_on) {
                 _overlay_image.to_clear = true;

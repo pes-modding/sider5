@@ -2,6 +2,15 @@ Sider 5 Release History
 =======================
 
 
+March 16, 2019
+v5.2.2
+- stability fixes: memory.read and memory.search no longer
+  change page protection attributes, which was causing crashes.
+- better logic for polling controllers for their state
+- using XInput 1.3: sider now works again on Windows 7
+- camera.lua now has gamepad support
+
+
 March 10, 2019
 v5.2.1
 - refactoring the support for overlay control via gamepad.

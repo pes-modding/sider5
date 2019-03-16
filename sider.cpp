@@ -3453,8 +3453,6 @@ BOOL sider_read_file(
     }
 
     if (rs) {
-        bool full_read = (fli) && (fli->bytes_read_so_far + num_bytes_read >= fli->total_bytes_to_read);
-
         // livecpk_read
         if (num_bytes_read > 0 && _config->_lua_enabled) {
             list<module_t*>::iterator i;
@@ -3466,10 +3464,13 @@ BOOL sider_read_file(
             }
         }
 
+        /**
+        bool full_read = (fli) && (fli->bytes_read_so_far + num_bytes_read >= fli->total_bytes_to_read);
         if (full_read) {
             DBG(1024) logu_("full read of: %s, buffer=%p, buffer2=%p, sz=0x%x (lpBuffer=%p, bytes_read=0x%x)\n",
                 rs->filename, fli->buffer, fli->buffer2, fli->total_bytes_to_read, lpBuffer, num_bytes_read);
         }
+        **/
     }
 
     return result;
@@ -3551,8 +3552,6 @@ void sider_mem_copy(BYTE *dst, LONGLONG dst_len, BYTE *src, LONGLONG src_len, st
             }
         }
 
-        bool full_read = (fli) && (fli->bytes_read_so_far + dst_len_used >= fli->total_bytes_to_read);
-
         // livecpk_read
         if (_config->_lua_enabled) {
             list<module_t*>::iterator i;
@@ -3564,10 +3563,13 @@ void sider_mem_copy(BYTE *dst, LONGLONG dst_len, BYTE *src, LONGLONG src_len, st
             }
         }
 
+        /**
+        bool full_read = (fli) && (fli->bytes_read_so_far + dst_len_used >= fli->total_bytes_to_read);
         if (full_read) {
             DBG(1024) logu_("full read of: %s, buffer=%p, buffer2=%p, sz=0x%x (lpBuffer=%p, bytes_read=0x%x)\n",
                 rs->filename, fli->buffer, fli->buffer2, fli->total_bytes_to_read, dst, dst_len_used);
         }
+        **/
     }
 }
 

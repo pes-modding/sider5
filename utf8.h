@@ -3,6 +3,42 @@
 #ifndef _UTF8
 #define _UTF8
 
+namespace Utf8 {
+    static wchar_t *utf8ToUnicode(const void *src) {
+        unsigned int code_page = 65001; //utf-8
+        int n, wn;
+        wchar_t *ws;
+        const char *s = (const char*)src;
+        //n = (int)strlen(s);
+        wn = MultiByteToWideChar(code_page, 0, s, -1, NULL, 0);
+        ws = (wchar_t*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, (wn+1)*sizeof(wchar_t));
+        if (wn > 0) {
+            MultiByteToWideChar(code_page, 0, s, -1, ws, wn);
+        }
+        return ws;
+    }
+
+    static char *unicodeToUtf8(const void *src) {
+        unsigned int code_page = 65001; //utf-8
+        int n, wn;
+        char *s;
+        const wchar_t *ws = (const wchar_t*)src;
+        //wn = (int)wcslen(ws);
+        n = WideCharToMultiByte(code_page, 0, ws, -1, NULL, 0, NULL, NULL);
+        s = (char*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, (n+1)*sizeof(char));
+        if (n > 0) {
+            WideCharToMultiByte(code_page, 0, ws, -1, s, n, NULL, NULL);
+        }
+        return s;
+    }
+
+    static void free(void *ptr) {
+        if (ptr) {
+            HeapFree(GetProcessHeap(), 0, ptr);
+        }
+    }
+};
+
 // for ANSI 0x80 - 0x9F
 static WORD extendedUnicodes[32] = {
 	0x20AC, 0x0081, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021,
@@ -11,7 +47,7 @@ static WORD extendedUnicodes[32] = {
 	0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x009D, 0x017E, 0x0178
 };
 
-class Utf8 {
+class Utf8org {
 	public:
 		static wchar_t chr_ansiToUnicode(char a) {
 			if ((BYTE)a < 0x80 || (BYTE)a > 0x9f)
@@ -371,17 +407,19 @@ class Utf8 {
 		}
 		// ---
 		
-		static void free(BYTE* a) {
+		static void free(void* a) {
 			HeapFree(GetProcessHeap(), 0, a);
 		}
 		
+        /*
 		static void free(char* a) {
 			HeapFree(GetProcessHeap(), 0, (BYTE*)a);
 		}
 		
-		static void free(wchar_t* a) {
+		static void free2(wchar_t* a) {
 			HeapFree(GetProcessHeap(), 0, (BYTE*)a);
 		}
+        */
 };
 	
 

@@ -70,7 +70,7 @@ vshader.h: vshader.hlsl
 pshader.h: pshader.hlsl
 	fxc /E siderPS /Ges /T ps_4_0 /Fh pshader.h pshader.hlsl
 
-sider.obj: sider.cpp sider.h patterns.h common.h imageutil.h vshader.h pshader.h libz.h
+sider.obj: sider.cpp sider.h patterns.h common.h imageutil.h vshader.h pshader.h libz.h utf8.h
 sider.dll: sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj libz.obj DDSTextureLoader.obj WICTextureLoader.obj sider.res $(LUALIBPATH)\$(LUALIB) $(FW1LIBPATH)\$(FW1LIB) $(LPZLIB)\zlibwapi.lib
 	$(LINK) $(LFLAGS) /out:sider.dll /DLL sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj libz.obj DDSTextureLoader.obj WICTextureLoader.obj sider.res zlibwapi.lib /LIBPATH:$(LUALIBPATH) /LIBPATH:$(FW1LIBPATH) $(LIBS) $(LUALIB) $(FW1LIB) /LIBPATH:$(LPZLIB) /LIBPATH:"$(LIB)"
 

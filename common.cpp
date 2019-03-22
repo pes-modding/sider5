@@ -23,8 +23,8 @@ __declspec(dllexport) void log_(const wchar_t *format, ...)
         va_start(params, format);
         vswprintf_s(buffer, count, format, params);
         va_end(params);
-        BYTE *encoded = Utf8::unicodeToUtf8(buffer);
-        fwrite(encoded, strlen((char*)encoded), 1, file);
+        char *encoded = Utf8::unicodeToUtf8(buffer);
+        fwrite(encoded, strlen(encoded), 1, file);
         Utf8:free(encoded);
         fflush(file);
     }

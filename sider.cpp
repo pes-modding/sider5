@@ -1443,7 +1443,7 @@ BOOL sider_object_enum_callback(LPCDIDEVICEOBJECTINSTANCE lpddoi, LPVOID pvRef)
 
 wstring* _have_live_file(char *file_name)
 {
-    wchar_t *unicode_filename = Utf8::utf8ToUnicode((const BYTE*)file_name);
+    wchar_t *unicode_filename = Utf8::utf8ToUnicode(file_name);
     //wchar_t unicode_filename[512];
     //memset(unicode_filename, 0, sizeof(unicode_filename));
     //Utf8::fUtf8ToUnicode(unicode_filename, file_name);
@@ -2121,7 +2121,7 @@ wstring *module_get_filepath(module_t *m, const char *file_name, char *key)
         }
         else if (lua_isstring(L, -1)) {
             const char *s = luaL_checkstring(L, -1);
-            wchar_t *ws = Utf8::utf8ToUnicode((BYTE*)s);
+            wchar_t *ws = Utf8::utf8ToUnicode((void*)s);
             res = new wstring(ws);
             Utf8::free(ws);
         }
@@ -3123,7 +3123,7 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
                 module_t *m = *_curr_overlay_m;
                 module_overlay_on(m, &text, &image_path, &opts);
                 if (text) {
-                    wchar_t *ws = Utf8::utf8ToUnicode((BYTE*)text);
+                    wchar_t *ws = Utf8::utf8ToUnicode(text);
                     wcscpy(_current_overlay_text, ws);
                     Utf8::free(ws);
                 }
@@ -3144,7 +3144,7 @@ HRESULT sider_Present(IDXGISwapChain *swapChain, UINT SyncInterval, UINT Flags)
                         _overlay_image.filepath = strdup(image_path);
 
                         HRESULT hr;
-                        wchar_t *ws = Utf8::utf8ToUnicode((BYTE*)image_path);
+                        wchar_t *ws = Utf8::utf8ToUnicode(image_path);
                         if (memcmp(".dds", image_path+strlen(image_path)-4, 4)==0) {
                             hr = DirectX::CreateDDSTextureFromFile(DX11.Device, ws, &g_texture, &g_textureView);
                         }
@@ -5110,6 +5110,42 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
                 memset(&_overlay_image, 0, sizeof(overlay_image_t));
 
                 install_func(NULL);
+
+                /**
+                // performance test
+                char *str = "UTF-8 check: ленинградское время ноль часов ноль минут.";
+                wchar_t *wstr = Utf8::utf8ToUnicode(str);
+                logu_("Performance test. UTF-8 str   : %s\n", str);
+                log_(L"Performance test. Unicode str : %s\n", wstr);
+
+                DWORD s1 = GetTickCount();
+                for (int i=0; i<1000000; i++) {
+                    wchar_t *w = Utf8::utf8ToUnicode(str);
+                    Utf8::free(w);
+                }
+                DWORD f1 = GetTickCount();
+                DWORD s2 = GetTickCount();
+                for (int i=0; i<1000000; i++) {
+                    char *s = Utf8::unicodeToUtf8(wstr);
+                    Utf8::free(s);
+                }
+                DWORD f2 = GetTickCount();
+                logu_("Utf8: %d, %d\n", f1-s1, f2-s2);
+
+                DWORD s3 = GetTickCount();
+                for (int i=0; i<1000000; i++) {
+                    wchar_t *w = Utf8org::utf8ToUnicode((BYTE*)str);
+                    Utf8org::free((BYTE*)w);
+                }
+                DWORD f3 = GetTickCount();
+                DWORD s4 = GetTickCount();
+                for (int i=0; i<1000000; i++) {
+                    char *s = (char*)Utf8org::unicodeToUtf8(wstr);
+                    Utf8org::free(s);
+                }
+                DWORD f4 = GetTickCount();
+                logu_("Utf8org: %d, %d\n", f3-s3, f4-s4);
+                **/
 
                 delete match;
                 return TRUE;

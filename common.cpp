@@ -122,6 +122,19 @@ void hook_call_point(
 	}
 }
 
+BYTE* check_hint(BYTE *base, LONGLONG max_offset, BYTE *frag, size_t frag_len, void *hint)
+{
+    BYTE *p = base;
+    BYTE *max_p = base + max_offset;
+    BYTE *hp = (BYTE*)hint;
+    if (p <= hp && hp + frag_len <= max_p) {
+        if (memcmp(hp, frag, frag_len)==0) {
+            return hp;
+        }
+    }
+    return NULL;
+}
+
 BYTE* find_code_frag(BYTE *base, LONGLONG max_offset, BYTE *frag, size_t frag_len)
 {
     BYTE *p = base;

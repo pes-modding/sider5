@@ -550,6 +550,55 @@ public:
     }
 };
 
+class hook_cache_t {
+public:
+    wstring _filename;
+    void* _addrs[64];
+    int _len;
+    hook_cache_t(const wstring &filename) : _filename(filename), _len(0) {
+        memset(_addrs, 0, sizeof(_addrs));
+        FILE *f = _wfopen(_filename.c_str(), L"rb");
+        if (f) {
+            logu_("hook cache: loading...\n");
+            while (!feof(f)) {
+                void *addr;
+                if (fread(&addr, sizeof(void*), 1, f)) {
+                    _addrs[_len++] = addr;
+                }
+            }
+            fclose(f);
+            logu_("hook cache: read %d entries\n", _len);
+        }
+    }
+    void save() {
+        FILE *f = _wfopen(_filename.c_str(), L"wb");
+        if (!f) {
+            logu_("warning: unable to save hook cache to: %s\n", _filename.c_str());
+            return;
+        }
+        logu_("hook cache: saving...\n");
+        for (int i=0; i<_len; i++) {
+            fwrite(&_addrs[i], sizeof(void*), 1, f);
+        }
+        logu_("hook cache: written %d entries\n", _len);
+        fclose(f);
+    }
+    void* get(int i) {
+        if (0 <= i && i < sizeof(_addrs)/sizeof(void*)) {
+            return _addrs[i];
+        }
+        return NULL;
+    }
+    void set(int i, void* p) {
+        if (0 <= i && i < sizeof(_addrs)/sizeof(void*)) {
+            _addrs[i] = p;
+            if (i >= _len) {
+                _len = i+1;
+            }
+        }
+    }
+};
+
 struct gamepad_directinput_mapping_t {
     DWORD dwType;
     int what;
@@ -4607,7 +4656,9 @@ void lua_reload_modified_modules()
     log_(L"~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
 }
 
-bool _install_func(IMAGE_SECTION_HEADER *h);
+void _install_func(IMAGE_SECTION_HEADER *h, int npatt, BYTE **frag, size_t *frag_len, int *offs, BYTE ***addrs, hook_cache_t &hcache);
+bool hook_if_all_found();
+bool all_found(config_t *cfg);
 
 DWORD install_func(LPVOID thread_param) {
     log_(L"DLL attaching to (%s).\n", module_filename);
@@ -4701,7 +4752,145 @@ DWORD install_func(LPVOID thread_param) {
         log_(L"Using cpk.root: %s\n", it->c_str());
     }
 
+    // read hook cache
+    wstring cache_file(sider_dir);
+    cache_file += L"startup.cache";
+    hook_cache_t hcache(cache_file);
+
+    // prepare patterns
+#define NUM_PATTERNS 20
+    BYTE *frag[NUM_PATTERNS];
+    frag[0] = lcpk_pattern_at_read_file;
+    frag[1] = lcpk_pattern_at_get_size;
+    frag[2] = lcpk_pattern_at_write_cpk_filesize;
+    frag[3] = lcpk_pattern_at_mem_copy;
+    frag[4] = lcpk_pattern_at_lookup_file;
+    frag[5] = pattern_set_team_id;
+    frag[6] = pattern_set_settings;
+    frag[7] = pattern_trophy_check;
+    frag[8] = pattern_context_reset;
+    frag[9] = pattern_set_min_time;
+    frag[10] = pattern_set_max_time;
+    frag[11] = pattern_set_minutes;
+    frag[12] = pattern_sider;
+    frag[13] = pattern_trophy_table;
+    frag[14] = pattern_ball_name;
+    frag[15] = pattern_dxgi;
+    frag[16] = pattern_set_stadium_choice;
+    frag[17] = pattern_stadium_name;
+    frag[18] = pattern_def_stadium_name;
+    frag[19] = pattern2_set_settings;
+
+    size_t frag_len[NUM_PATTERNS];
+    frag_len[0] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_read_file)-1 : 0;
+    frag_len[1] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_get_size)-1 : 0;
+    frag_len[2] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_write_cpk_filesize)-1 : 0;
+    frag_len[3] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_mem_copy)-1 : 0;
+    frag_len[4] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_lookup_file)-1 : 0;
+    frag_len[5] = _config->_lua_enabled ? sizeof(pattern_set_team_id)-1 : 0;
+    frag_len[6] = _config->_lua_enabled ? sizeof(pattern_set_settings)-1 : 0;
+    frag_len[7] = _config->_lua_enabled ? sizeof(pattern_trophy_check)-1 : 0;
+    frag_len[8] = _config->_lua_enabled ? sizeof(pattern_context_reset)-1 : 0;
+    frag_len[9] = 0; //sizeof(pattern_set_min_time)-1;
+    frag_len[10] = sizeof(pattern_set_max_time)-1;
+    frag_len[11] = (_config->_num_minutes > 0) ? sizeof(pattern_set_minutes)-1 : 0;
+    frag_len[12] = _config->_free_side_select ? sizeof(pattern_sider)-1 : 0;
+    frag_len[13] = _config->_lua_enabled ? sizeof(pattern_trophy_table)-1 : 0;
+    frag_len[14] = _config->_lua_enabled ? sizeof(pattern_ball_name)-1 : 0;
+    frag_len[15] = _config->_overlay_enabled ? sizeof(pattern_dxgi)-1 : 0;
+    frag_len[16] = _config->_lua_enabled ? sizeof(pattern_set_stadium_choice)-1 : 0;
+    frag_len[17] = _config->_lua_enabled ? sizeof(pattern_stadium_name)-1 : 0;
+    frag_len[18] = _config->_lua_enabled ? sizeof(pattern_def_stadium_name)-1 : 0;
+    frag_len[19] = _config->_lua_enabled ? sizeof(pattern2_set_settings)-1 : 0;
+
+    int offs[NUM_PATTERNS];
+    offs[0] = lcpk_offs_at_read_file;
+    offs[1] = lcpk_offs_at_get_size;
+    offs[2] = lcpk_offs_at_write_cpk_filesize;
+    offs[3] = lcpk_offs_at_mem_copy;
+    offs[4] = lcpk_offs_at_lookup_file;
+    offs[5] = offs_set_team_id;
+    offs[6] = offs_set_settings;
+    offs[7] = offs_trophy_check;
+    offs[8] = offs_context_reset;
+    offs[9] = offs_set_min_time;
+    offs[10] = offs_set_max_time;
+    offs[11] = offs_set_minutes;
+    offs[12] = offs_sider;
+    offs[13] = offs_trophy_table;
+    offs[14] = offs_ball_name;
+    offs[15] = offs_dxgi;
+    offs[16] = offs_set_stadium_choice;
+    offs[17] = offs_stadium_name;
+    offs[18] = offs_def_stadium_name;
+    offs[19] = offs_set_settings;
+
+    BYTE **addrs[NUM_PATTERNS];
+    addrs[0] = &_config->_hp_at_read_file;
+    addrs[1] = &_config->_hp_at_get_size;
+    addrs[2] = &_config->_hp_at_extend_cpk;
+    addrs[3] = &_config->_hp_at_mem_copy;
+    addrs[4] = &_config->_hp_at_lookup_file;
+    addrs[5] = &_config->_hp_at_set_team_id;
+    addrs[6] = &_config->_hp_at_set_settings;
+    addrs[7] = &_config->_hp_at_trophy_check;
+    addrs[8] = &_config->_hp_at_context_reset;
+    addrs[9] = &_config->_hp_at_set_min_time;
+    addrs[10] = &_config->_hp_at_set_max_time;
+    addrs[11] = &_config->_hp_at_set_minutes;
+    addrs[12] = &_config->_hp_at_sider;
+    addrs[13] = &_config->_hp_at_trophy_table;
+    addrs[14] = &_config->_hp_at_ball_name;
+    addrs[15] = &_config->_hp_at_dxgi;
+    addrs[16] = &_config->_hp_at_set_stadium_choice;
+    addrs[17] = &_config->_hp_at_stadium_name;
+    addrs[18] = &_config->_hp_at_def_stadium_name;
+    addrs[19] = &_config->_hp_at_set_settings;
+
+    // check hook cache first
     for (int i=0;; i++) {
+        IMAGE_SECTION_HEADER *h = GetSectionHeaderByOrdinal(i);
+        if (!h) {
+            break;
+        }
+
+        BYTE* base = (BYTE*)GetModuleHandle(NULL);
+        base += h->VirtualAddress;
+
+        char name[16];
+        memset(name, 0, sizeof(name));
+        memcpy(name, h->Name, 8);
+        logu_("Examining code section: %s\n", name);
+        if (h->Misc.VirtualSize < 0x10) {
+            log_(L"Section too small: %s (%p). Skipping\n", name, h->Misc.VirtualSize);
+            continue;
+        }
+
+        for (int j=0; j<NUM_PATTERNS; j++) {
+            if (frag_len[j]==0) {
+                // empty frag
+                continue;
+            }
+            if (*(addrs[j])) {
+                // already found
+                continue;
+            }
+            void *hint = hcache.get(j);
+            if (hint) {
+                BYTE *p = check_hint(base, h->Misc.VirtualSize,
+                    frag[j], frag_len[j], hint);
+                if (p) {
+                    log_(L"Found pattern (hint match) %i of %i\n", j+1, NUM_PATTERNS);
+                    *(addrs[j]) = p + offs[j];
+                }
+            }
+        }
+        if (all_found(_config)) {
+            break;
+        }
+    }
+
+    if (!all_found(_config)) for (int i=0;; i++) {
         IMAGE_SECTION_HEADER *h = GetSectionHeaderByOrdinal(i);
         if (!h) {
             break;
@@ -4716,15 +4905,21 @@ DWORD install_func(LPVOID thread_param) {
             continue;
         }
 
-        if (_install_func(h)) {
-            memset(&_prev_xi_state, 0, sizeof(xi_state_t));
-            memset(_xi_changes, 0, sizeof(_xi_changes));
-            init_fast_pov_map();
-            init_direct_input();
-            init_lua_support();
+        _install_func(h, NUM_PATTERNS, frag, frag_len, offs, addrs, hcache);
+        if (all_found(_config)) {
             break;
         }
     }
+
+    if (hook_if_all_found()) {
+        hcache.save();
+        memset(&_prev_xi_state, 0, sizeof(xi_state_t));
+        memset(_xi_changes, 0, sizeof(_xi_changes));
+        init_fast_pov_map();
+        init_direct_input();
+        init_lua_support();
+    }
+
     log_(L"Sider initialization complete.\n");
     return 0;
 }
@@ -4773,100 +4968,13 @@ bool all_found(config_t *cfg) {
     return all;
 }
 
-bool _install_func(IMAGE_SECTION_HEADER *h) {
+void _install_func(IMAGE_SECTION_HEADER *h, int npatt, BYTE **frag, size_t *frag_len, int *offs, BYTE ***addrs, hook_cache_t &hcache) {
     BYTE* base = (BYTE*)GetModuleHandle(NULL);
     base += h->VirtualAddress;
     log_(L"Searching range: %p : %p (size: %p)\n",
         base, base + h->Misc.VirtualSize, h->Misc.VirtualSize);
-    bool result(false);
 
-#define NUM_PATTERNS 20
-    BYTE *frag[NUM_PATTERNS];
-    frag[0] = lcpk_pattern_at_read_file;
-    frag[1] = lcpk_pattern_at_get_size;
-    frag[2] = lcpk_pattern_at_write_cpk_filesize;
-    frag[3] = lcpk_pattern_at_mem_copy;
-    frag[4] = lcpk_pattern_at_lookup_file;
-    frag[5] = pattern_set_team_id;
-    frag[6] = pattern_set_settings;
-    frag[7] = pattern_trophy_check;
-    frag[8] = pattern_context_reset;
-    frag[9] = pattern_set_min_time;
-    frag[10] = pattern_set_max_time;
-    frag[11] = pattern_set_minutes;
-    frag[12] = pattern_sider;
-    frag[13] = pattern_trophy_table;
-    frag[14] = pattern_ball_name;
-    frag[15] = pattern_dxgi;
-    frag[16] = pattern_set_stadium_choice;
-    frag[17] = pattern_stadium_name;
-    frag[18] = pattern_def_stadium_name;
-    frag[19] = pattern2_set_settings;
-    size_t frag_len[NUM_PATTERNS];
-    frag_len[0] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_read_file)-1 : 0;
-    frag_len[1] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_get_size)-1 : 0;
-    frag_len[2] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_write_cpk_filesize)-1 : 0;
-    frag_len[3] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_mem_copy)-1 : 0;
-    frag_len[4] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_lookup_file)-1 : 0;
-    frag_len[5] = _config->_lua_enabled ? sizeof(pattern_set_team_id)-1 : 0;
-    frag_len[6] = _config->_lua_enabled ? sizeof(pattern_set_settings)-1 : 0;
-    frag_len[7] = _config->_lua_enabled ? sizeof(pattern_trophy_check)-1 : 0;
-    frag_len[8] = _config->_lua_enabled ? sizeof(pattern_context_reset)-1 : 0;
-    frag_len[9] = 0; //sizeof(pattern_set_min_time)-1;
-    frag_len[10] = sizeof(pattern_set_max_time)-1;
-    frag_len[11] = (_config->_num_minutes > 0) ? sizeof(pattern_set_minutes)-1 : 0;
-    frag_len[12] = _config->_free_side_select ? sizeof(pattern_sider)-1 : 0;
-    frag_len[13] = _config->_lua_enabled ? sizeof(pattern_trophy_table)-1 : 0;
-    frag_len[14] = _config->_lua_enabled ? sizeof(pattern_ball_name)-1 : 0;
-    frag_len[15] = _config->_overlay_enabled ? sizeof(pattern_dxgi)-1 : 0;
-    frag_len[16] = _config->_lua_enabled ? sizeof(pattern_set_stadium_choice)-1 : 0;
-    frag_len[17] = _config->_lua_enabled ? sizeof(pattern_stadium_name)-1 : 0;
-    frag_len[18] = _config->_lua_enabled ? sizeof(pattern_def_stadium_name)-1 : 0;
-    frag_len[19] = _config->_lua_enabled ? sizeof(pattern2_set_settings)-1 : 0;
-    int offs[NUM_PATTERNS];
-    offs[0] = lcpk_offs_at_read_file;
-    offs[1] = lcpk_offs_at_get_size;
-    offs[2] = lcpk_offs_at_write_cpk_filesize;
-    offs[3] = lcpk_offs_at_mem_copy;
-    offs[4] = lcpk_offs_at_lookup_file;
-    offs[5] = offs_set_team_id;
-    offs[6] = offs_set_settings;
-    offs[7] = offs_trophy_check;
-    offs[8] = offs_context_reset;
-    offs[9] = offs_set_min_time;
-    offs[10] = offs_set_max_time;
-    offs[11] = offs_set_minutes;
-    offs[12] = offs_sider;
-    offs[13] = offs_trophy_table;
-    offs[14] = offs_ball_name;
-    offs[15] = offs_dxgi;
-    offs[16] = offs_set_stadium_choice;
-    offs[17] = offs_stadium_name;
-    offs[18] = offs_def_stadium_name;
-    offs[19] = offs_set_settings;
-    BYTE **addrs[NUM_PATTERNS];
-    addrs[0] = &_config->_hp_at_read_file;
-    addrs[1] = &_config->_hp_at_get_size;
-    addrs[2] = &_config->_hp_at_extend_cpk;
-    addrs[3] = &_config->_hp_at_mem_copy;
-    addrs[4] = &_config->_hp_at_lookup_file;
-    addrs[5] = &_config->_hp_at_set_team_id;
-    addrs[6] = &_config->_hp_at_set_settings;
-    addrs[7] = &_config->_hp_at_trophy_check;
-    addrs[8] = &_config->_hp_at_context_reset;
-    addrs[9] = &_config->_hp_at_set_min_time;
-    addrs[10] = &_config->_hp_at_set_max_time;
-    addrs[11] = &_config->_hp_at_set_minutes;
-    addrs[12] = &_config->_hp_at_sider;
-    addrs[13] = &_config->_hp_at_trophy_table;
-    addrs[14] = &_config->_hp_at_ball_name;
-    addrs[15] = &_config->_hp_at_dxgi;
-    addrs[16] = &_config->_hp_at_set_stadium_choice;
-    addrs[17] = &_config->_hp_at_stadium_name;
-    addrs[18] = &_config->_hp_at_def_stadium_name;
-    addrs[19] = &_config->_hp_at_set_settings;
-
-    for (int j=0; j<NUM_PATTERNS; j++) {
+    for (int j=0; j<npatt; j++) {
         if (frag_len[j]==0) {
             // empty frag
             continue;
@@ -4882,7 +4990,12 @@ bool _install_func(IMAGE_SECTION_HEADER *h) {
         }
         log_(L"Found pattern %i of %i\n", j+1, NUM_PATTERNS);
         *(addrs[j]) = p + offs[j];
+        hcache.set(j,p);
     }
+}
+
+bool hook_if_all_found() {
+    bool result(false);
 
     if (all_found(_config)) {
         result = true;
@@ -5065,9 +5178,11 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
     wstring *match = NULL;
     INT result = FALSE;
     HWND main_hwnd;
+    DWORD s,f;
 
     switch(Reason) {
         case DLL_PROCESS_ATTACH:
+            s = GetTickCount();
             myHDLL = hDLL;
             memset(module_filename, 0, sizeof(module_filename));
             if (GetModuleFileName(NULL, module_filename, MAX_PATH)==0) {
@@ -5110,6 +5225,8 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
                 memset(&_overlay_image, 0, sizeof(overlay_image_t));
 
                 install_func(NULL);
+                f = GetTickCount();
+                log_(L"initialized in %d clock ticks\n", f-s);
 
                 /**
                 // performance test

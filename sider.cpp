@@ -5178,11 +5178,12 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
     wstring *match = NULL;
     INT result = FALSE;
     HWND main_hwnd;
-    DWORD s,f;
+    ULONGLONG s,f;
 
     switch(Reason) {
         case DLL_PROCESS_ATTACH:
-            s = GetTickCount();
+            s = GetTickCount64();
+
             myHDLL = hDLL;
             memset(module_filename, 0, sizeof(module_filename));
             if (GetModuleFileName(NULL, module_filename, MAX_PATH)==0) {
@@ -5225,8 +5226,9 @@ INT APIENTRY DllMain(HMODULE hDLL, DWORD Reason, LPVOID Reserved)
                 memset(&_overlay_image, 0, sizeof(overlay_image_t));
 
                 install_func(NULL);
-                f = GetTickCount();
-                log_(L"initialized in %d clock ticks\n", f-s);
+
+                f = GetTickCount64();
+                log_(L"Initialized in %0.3f seconds\n", (f - s)/1000.0);
 
                 /**
                 // performance test

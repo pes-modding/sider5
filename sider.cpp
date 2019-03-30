@@ -185,6 +185,7 @@ struct STAD_INFO_STRUCT _stadium_info;
 MATCH_INFO_STRUCT *_main_mi = NULL;
 
 int get_context_field_int(const char *name);
+void set_context_field_lightuserdata(const char *name, void *p);
 void set_context_field_boolean(const char *name, bool value);
 void set_context_field_int(const char *name, int value);
 void set_context_field_nil(const char *name);
@@ -196,7 +197,7 @@ const char *_context_fields[] = {
     "match_id", "match_info", "match_leg", "match_time",
     "away_team", "home_team", "stadium_choice", "stadium",
     "weather", "weather_effects", "timeofday", "season",
-    "tournament_id",
+    "tournament_id", "mis",
 };
 size_t _context_fields_count = sizeof(_context_fields)/sizeof(const char *);
 
@@ -488,6 +489,10 @@ extern "C" void sider_def_stadium_name_hk();
 extern "C" void sider_set_stadium_choice(MATCH_INFO_STRUCT *mi, BYTE stadium_id);
 
 extern "C" void sider_set_stadium_choice_hk();
+
+extern "C" void sider_check_kit_choice(MATCH_INFO_STRUCT *mi, DWORD home_or_away);
+
+extern "C" void sider_check_kit_choice_hk();
 
 static DWORD dwThreadId;
 static DWORD hookingThreadId = 0;
@@ -852,6 +857,7 @@ public:
     BYTE *_hp_at_stadium_name;
     BYTE *_hp_at_def_stadium_name;
     BYTE *_hp_at_set_stadium_choice;
+    BYTE *_hp_at_check_kit_choice;
 
     BYTE *_hp_at_set_min_time;
     BYTE *_hp_at_set_max_time;
@@ -903,6 +909,7 @@ public:
                  _hp_at_trophy_check(NULL),
                  _hp_at_context_reset(NULL),
                  _hp_at_set_stadium_choice(NULL),
+                 _hp_at_check_kit_choice(NULL),
                  _hp_at_set_min_time(NULL),
                  _hp_at_set_max_time(NULL),
                  _hp_at_set_minutes(NULL),
@@ -1263,6 +1270,7 @@ struct module_t {
     int evt_lcpk_rewrite;
     int evt_lcpk_read;
     int evt_set_teams;
+    int evt_set_kits;
     /*
     int evt_set_tid;
     */
@@ -1603,6 +1611,18 @@ int get_context_field_int(const char *name, int default_value)
     return value;
 }
 
+void set_context_field_lightuserdata(const char *name, void *p)
+{
+    if (_config->_lua_enabled) {
+        EnterCriticalSection(&_cs);
+        lua_pushvalue(L, 1); // ctx
+        lua_pushlightuserdata(L, p);
+        lua_setfield(L, -2, name);
+        lua_pop(L, 1);
+        LeaveCriticalSection(&_cs);
+    }
+}
+
 void set_context_field_int(const char *name, int value)
 {
     if (_config->_lua_enabled) {
@@ -1644,6 +1664,8 @@ void set_match_info(MATCH_INFO_STRUCT* mis)
     int match_id = (int)(mis->match_id);
     int match_leg = (int)(mis->match_leg);
     int match_info = (int)(mis->match_info);
+
+    set_context_field_lightuserdata("mis", mis);
 
     if (match_id != 0 && (match_leg == 0 || match_leg == 1)) {
         set_context_field_int("match_leg", match_leg+1);
@@ -1864,6 +1886,35 @@ void module_set_teams(module_t *m, DWORD home, DWORD away)
         }
         LeaveCriticalSection(&_cs);
     }
+}
+
+bool module_set_kits(module_t *m, MATCH_INFO_STRUCT *mi)
+{
+    bool result(false);
+    if (m->evt_set_kits != 0) {
+        EnterCriticalSection(&_cs);
+        lua_pushvalue(m->L, m->evt_set_kits);
+        lua_xmove(m->L, L, 1);
+        // push params
+        lua_pushvalue(L, 1); // ctx
+        lua_newtable(L); // home team info
+        lua_pushinteger(L, *((BYTE*)mi + 0x10a));
+        lua_setfield(L, -2, "home_kit");
+        lua_newtable(L); // away team info
+        lua_pushinteger(L, *((BYTE*)mi + 0x10b));
+        lua_setfield(L, -2, "away_kit");
+
+        if (lua_pcall(L, 3, 2, 0) != LUA_OK) {
+            const char *err = luaL_checkstring(L, -1);
+            logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+            lua_pop(L, 1);
+            LeaveCriticalSection(&_cs);
+            return false;
+        }
+        lua_pop(L,2);
+        LeaveCriticalSection(&_cs);
+    }
+    return result;
 }
 
 char *module_ball_name(module_t *m, char *name)
@@ -3894,6 +3945,25 @@ void sider_set_stadium_choice(MATCH_INFO_STRUCT *mi, BYTE stadium_choice)
     }
 }
 
+void sider_check_kit_choice(MATCH_INFO_STRUCT *mi, DWORD home_or_away)
+{
+    logu_("check_kit_choice: mi=%p, home_or_away=%d\n", mi, home_or_away);
+    if (home_or_away == 1) {
+        return;
+    }
+
+    if (_config->_lua_enabled) {
+        // lua call-backs
+        list<module_t*>::iterator i;
+        for (i = _modules.begin(); i != _modules.end(); i++) {
+            module_t *m = *i;
+            if (module_set_kits(m, mi)) {
+                break;
+            }
+        }
+    }
+}
+
 BYTE* get_target_location(BYTE *call_location)
 {
     if (call_location) {
@@ -4088,6 +4158,12 @@ static int sider_context_register(lua_State *L)
         lua_pushvalue(L, -1);
         lua_xmove(L, _curr_m->L, 1);
         _curr_m->evt_set_teams = lua_gettop(_curr_m->L);
+        logu_("Registered for \"%s\" event\n", event_key);
+    }
+    else if (strcmp(event_key, "set_kits")==0) {
+        lua_pushvalue(L, -1);
+        lua_xmove(L, _curr_m->L, 1);
+        _curr_m->evt_set_kits = lua_gettop(_curr_m->L);
         logu_("Registered for \"%s\" event\n", event_key);
     }
     /*
@@ -4758,7 +4834,7 @@ DWORD install_func(LPVOID thread_param) {
     hook_cache_t hcache(cache_file);
 
     // prepare patterns
-#define NUM_PATTERNS 20
+#define NUM_PATTERNS 21
     BYTE *frag[NUM_PATTERNS];
     frag[0] = lcpk_pattern_at_read_file;
     frag[1] = lcpk_pattern_at_get_size;
@@ -4780,6 +4856,7 @@ DWORD install_func(LPVOID thread_param) {
     frag[17] = pattern_stadium_name;
     frag[18] = pattern_def_stadium_name;
     frag[19] = pattern2_set_settings;
+    frag[20] = pattern_check_kit_choice;
 
     size_t frag_len[NUM_PATTERNS];
     frag_len[0] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_read_file)-1 : 0;
@@ -4802,6 +4879,7 @@ DWORD install_func(LPVOID thread_param) {
     frag_len[17] = _config->_lua_enabled ? sizeof(pattern_stadium_name)-1 : 0;
     frag_len[18] = _config->_lua_enabled ? sizeof(pattern_def_stadium_name)-1 : 0;
     frag_len[19] = _config->_lua_enabled ? sizeof(pattern2_set_settings)-1 : 0;
+    frag_len[20] = _config->_lua_enabled ? sizeof(pattern_check_kit_choice)-1 : 0;
 
     int offs[NUM_PATTERNS];
     offs[0] = lcpk_offs_at_read_file;
@@ -4824,6 +4902,7 @@ DWORD install_func(LPVOID thread_param) {
     offs[17] = offs_stadium_name;
     offs[18] = offs_def_stadium_name;
     offs[19] = offs_set_settings;
+    offs[20] = offs_check_kit_choice;
 
     BYTE **addrs[NUM_PATTERNS];
     addrs[0] = &_config->_hp_at_read_file;
@@ -4846,6 +4925,7 @@ DWORD install_func(LPVOID thread_param) {
     addrs[17] = &_config->_hp_at_stadium_name;
     addrs[18] = &_config->_hp_at_def_stadium_name;
     addrs[19] = &_config->_hp_at_set_settings;
+    addrs[20] = &_config->_hp_at_check_kit_choice;
 
     // check hook cache first
     for (int i=0;; i++) {
@@ -4945,7 +5025,8 @@ bool all_found(config_t *cfg) {
             cfg->_hp_at_stadium_name > 0 &&
             cfg->_hp_at_def_stadium_name > 0 &&
             cfg->_hp_at_context_reset > 0 &&
-            cfg->_hp_at_set_stadium_choice > 0
+            cfg->_hp_at_set_stadium_choice > 0 &&
+            cfg->_hp_at_check_kit_choice > 0
         );
     }
     if (cfg->_num_minutes > 0) {
@@ -5036,6 +5117,7 @@ bool hook_if_all_found() {
             log_(L"sider_stadium_name: %p\n", sider_stadium_name_hk);
             log_(L"sider_def_stadium_name: %p\n", sider_def_stadium_name_hk);
             log_(L"sider_set_stadium_choice: %p\n", sider_set_stadium_choice_hk);
+            log_(L"sider_check_kit_choice: %p\n", sider_check_kit_choice_hk);
 
             if (_config->_hook_set_team_id) {
                 BYTE *check_addr = _config->_hp_at_set_team_id - offs_set_team_id + offs_check_set_team_id;
@@ -5074,6 +5156,7 @@ bool hook_if_all_found() {
             hook_call_with_head_and_tail(_config->_hp_at_set_stadium_choice, (BYTE*)sider_set_stadium_choice_hk,
                 (BYTE*)pattern_set_stadium_choice_head, sizeof(pattern_set_stadium_choice_head)-1,
                 (BYTE*)pattern_set_stadium_choice_tail, sizeof(pattern_set_stadium_choice_tail)-1);
+            hook_call(_config->_hp_at_check_kit_choice, (BYTE*)sider_check_kit_choice_hk, 0);
 
             BYTE *old_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_old;
             BYTE *new_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_new;

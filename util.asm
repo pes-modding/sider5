@@ -20,6 +20,7 @@ extern sider_ball_name:proc
 extern sider_stadium_name:proc
 extern sider_def_stadium_name:proc
 extern sider_set_stadium_choice:proc
+extern sider_check_kit_choice:proc
 
 .code
 sider_read_file_hk proc
@@ -330,5 +331,36 @@ sider_set_stadium_choice_hk proc
         ret
 
 sider_set_stadium_choice_hk endp
+
+;000000014A382487 | 49 89 06                        | mov qword ptr ds:[r14],rax             | a little before kit choice is read
+;000000014A38248A | 41 C6 87 FE FF FF FF 01         | mov byte ptr ds:[r15-2],1              |
+;000000014A382492 | 41 C6 07 00                     | mov byte ptr ds:[r15],0                |
+
+sider_check_kit_choice_hk proc
+
+        push    rcx
+        push    rdx
+        push    r8
+        push    r9
+        push    r10
+        push    r11
+        push    r15
+        sub     rsp,20h
+        mov     rcx,rdi   ;mis - match info struct
+        mov     rdx,rbx   ;0/1 - home/away
+        call    sider_check_kit_choice
+        add     rsp,20h
+        pop     r15
+        mov     byte ptr [r15-2],1
+        mov     byte ptr [r15],0
+        pop     r11
+        pop     r10
+        pop     r9
+        pop     r8
+        pop     rdx
+        pop     rcx
+        ret
+
+sider_check_kit_choice_hk endp
 
 end

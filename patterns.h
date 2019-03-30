@@ -346,4 +346,15 @@ static BYTE pattern_def_stadium_name_tail[15] =
 static int def_stadium_name_moved_call_offs_old = 0x08;
 static int def_stadium_name_moved_call_offs_new = 0x14;
 
+/*
+000000014A382487 | 49 89 06                        | mov qword ptr ds:[r14],rax             | a little before kit choice is read
+000000014A38248A | 41 C6 87 FE FF FF FF 01         | mov byte ptr ds:[r15-2],1              |
+000000014A382492 | 41 C6 07 00                     | mov byte ptr ds:[r15],0                |
+*/
+static BYTE pattern_check_kit_choice[16] =
+    "\x49\x89\x06"
+    "\x41\xc6\x87\xfe\xff\xff\xff\x01"
+    "\x41\xc6\x07\x00";
+static int offs_check_kit_choice = 3;
+
 #endif

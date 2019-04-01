@@ -357,4 +357,28 @@ static BYTE pattern_check_kit_choice[16] =
     "\x41\xc6\x07\x00";
 static int offs_check_kit_choice = 3;
 
+/*
+Find the code location where the "base addr" is read, and remember this addr.
+Look for this code sequence:
+
+0000000141D0B86D | 4D 85 FF                        | test r15,r15                       |
+0000000141D0B870 | 75 23                           | jne pes2019.141D0B895              |
+0000000141D0B872 | 48 83 7D 60 10                  | cmp qword ptr ss:[rbp+60],10       |
+0000000141D0B877 | 72 17                           | jb pes2019.141D0B890               |
+0000000141D0B879 | C7 44 24 60 02 00 00 00         | mov dword ptr ss:[rsp+60],2        |
+*/
+static BYTE pattern_get_uniparam[21] =
+    "\x4d\x85\xff"
+    "\x75\x23"
+    "\x48\x83\x7d\x60\x10"
+    "\x72\x17"
+    "\xc7\x44\x24\x60\x02\x00\x00\x00";
+static int offs_get_uniparam = -4;
+/*
+-- read the last 4 bytes of the code instruction immediately preceeding ours
+-- that is the relative offset for memory location. Can be positive or negative
+local offs = memory.unpack("i32", memory.read(addr-4, 4))
+base_addr = addr  + offs
+*/
+
 #endif

@@ -46,6 +46,7 @@ common.obj: common.cpp common.h
 imageutil.obj: imageutil.cpp imageutil.h
 version.obj: version.cpp
 libz.obj: libz.cpp libz.h common.h
+kitinfo.obj: kitinfo.cpp kitinfo.h
 memlib.obj: memlib.h memlib_lua.h memlib.cpp
 memlib_lua.h: memory.lua makememlibhdr.exe
 	makememlibhdr.exe
@@ -70,9 +71,9 @@ vshader.h: vshader.hlsl
 pshader.h: pshader.hlsl
 	fxc /E siderPS /Ges /T ps_4_0 /Fh pshader.h pshader.hlsl
 
-sider.obj: sider.cpp sider.h patterns.h common.h imageutil.h vshader.h pshader.h libz.h utf8.h
-sider.dll: sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj libz.obj DDSTextureLoader.obj WICTextureLoader.obj sider.res $(LUALIBPATH)\$(LUALIB) $(FW1LIBPATH)\$(FW1LIB) $(LPZLIB)\zlibwapi.lib
-	$(LINK) $(LFLAGS) /out:sider.dll /DLL sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj libz.obj DDSTextureLoader.obj WICTextureLoader.obj sider.res zlibwapi.lib /LIBPATH:$(LUALIBPATH) /LIBPATH:$(FW1LIBPATH) $(LIBS) $(LUALIB) $(FW1LIB) /LIBPATH:$(LPZLIB) /LIBPATH:"$(LIB)"
+sider.obj: sider.cpp sider.h patterns.h common.h imageutil.h vshader.h pshader.h libz.h kitinfo.h utf8.h
+sider.dll: sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj libz.obj kitinfo.obj DDSTextureLoader.obj WICTextureLoader.obj sider.res $(LUALIBPATH)\$(LUALIB) $(FW1LIBPATH)\$(FW1LIB) $(LPZLIB)\zlibwapi.lib
+	$(LINK) $(LFLAGS) /out:sider.dll /DLL sider.obj util.obj imageutil.obj version.obj common.obj kmp.obj memlib.obj libz.obj kitinfo.obj DDSTextureLoader.obj WICTextureLoader.obj sider.res zlibwapi.lib /LIBPATH:$(LUALIBPATH) /LIBPATH:$(FW1LIBPATH) $(LIBS) $(LUALIB) $(FW1LIB) /LIBPATH:$(LPZLIB) /LIBPATH:"$(LIB)"
 
 sider.exe: main.obj sider.dll sider_main.res $(LUADLL)
 	$(LINK) $(LFLAGS) /out:sider.exe main.obj sider_main.res $(LIBS) sider.lib /LIBPATH:"$(LIB)"

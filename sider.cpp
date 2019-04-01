@@ -16,6 +16,7 @@
 #include "patterns.h"
 #include "memlib.h"
 #include "libz.h"
+#include "kitinfo.h"
 
 #define DIRECTINPUT_VERSION 0x0800
 #define SAFE_RELEASE(x) if (x) { x->Release(); x = NULL; }
@@ -150,7 +151,11 @@ struct MATCH_INFO_STRUCT {
     DWORD weather_effects;
     DWORD unknown7[10];
     struct STAD_STRUCT stad;
+    DWORD unknown8;
+    BYTE unknown9[0x98];
     DWORD home_team_encoded;
+    BYTE unknown10[0x5e8];
+    DWORD away_team_encoded;
 };
 
 struct STAD_INFO_STRUCT {
@@ -176,6 +181,8 @@ char _ball_name[256];
 char _stadium_name[256];
 int _stadium_choice_count = 0;
 struct STAD_INFO_STRUCT _stadium_info;
+MATCH_INFO_STRUCT *_mi = NULL;
+void *_uniparam_base = NULL;
 
 // home team encoded-id offset: 0x104
 // home team name offset:       0x108
@@ -535,6 +542,8 @@ wchar_t dll_ini[MAX_PATH];
 wchar_t gamepad_ini[MAX_PATH];
 wchar_t sider_dir[MAX_PATH];
 
+static int get_team_id(MATCH_INFO_STRUCT *mi, int home_or_away);
+
 static void string_strip_quotes(wstring& s)
 {
     static const wchar_t* chars = L" \t\n\r\"'";
@@ -542,6 +551,74 @@ static void string_strip_quotes(wstring& s)
     s.erase(e + 1);
     int b = s.find_first_not_of(chars);
     s.erase(0,b);
+}
+
+static BYTE* get_uniparam()
+{
+    if (_uniparam_base) {
+        // follow a few indirections
+        void *obj1 = *(void**)(_uniparam_base);
+        if (obj1) {
+            void *obj2 = *(void**)((BYTE*)obj1+8);
+            if (obj2) {
+                void *obj3 = *(void**)((BYTE*)obj2+0x40);
+                if (obj3) {
+                    return *(BYTE**)((BYTE*)obj3+8);
+                }
+            }
+        }
+    }
+    return NULL;
+}
+
+static BYTE* find_kit_info(int team_id, int which_kit)
+{
+    char *suffix_map[] = {
+        "1st",  "2nd", "3rd", "4th", "5th",
+        "6th",  "7th", "8th", "9th", "10th",
+    };
+    if (which_kit < 0) { which_kit = 0; }
+    if (which_kit > 9) { which_kit = 9; }
+
+    BYTE *uniparam = get_uniparam();
+    if (uniparam) {
+        DWORD numItems = *(DWORD*)(uniparam);
+        DWORD sec3start = *(DWORD*)(uniparam+4);
+        DWORD sec3end = sec3start + numItems * 0x0c;
+        for (DWORD offs = sec3start; offs != sec3end; offs += 0x0c ) {
+            DWORD cf_starting_offs = *(DWORD*)(uniparam+offs);
+            DWORD cf_len = *(DWORD*)(uniparam+offs+4);
+            DWORD cf_name_starting_offs = *(DWORD*)(uniparam+offs+8);
+
+            char *kit_config_name = strdup((char*)uniparam + cf_name_starting_offs);
+
+            char *first_underscore = strchr(kit_config_name,'_');
+            if (first_underscore) {
+                char *second_underscore = strchr(first_underscore+1,'_');
+
+                *first_underscore = '\0';
+                int id = 0;
+                if (sscanf(kit_config_name,"%d",&id)==1) {
+                    if (team_id == id) {
+                        char *suffix = suffix_map[which_kit];
+                        if (memcmp(second_underscore+1, suffix, strlen(suffix))==0) {
+                            // match
+                            logu_("refresh_kit:: name: {%s}\n", (char*)uniparam + cf_name_starting_offs);
+                            free(kit_config_name);
+                            BYTE *p = uniparam + cf_starting_offs;
+                            if (*p != 1) {
+                                // non-licensed
+                                p += 0x60;
+                            }
+                            return p;
+                        }
+                    }
+                }
+            }
+            free(kit_config_name);
+        }
+    }
+    return NULL;
 }
 
 class lock_t {
@@ -858,6 +935,7 @@ public:
     BYTE *_hp_at_def_stadium_name;
     BYTE *_hp_at_set_stadium_choice;
     BYTE *_hp_at_check_kit_choice;
+    BYTE *_hp_at_get_uniparam;
 
     BYTE *_hp_at_set_min_time;
     BYTE *_hp_at_set_max_time;
@@ -910,6 +988,7 @@ public:
                  _hp_at_context_reset(NULL),
                  _hp_at_set_stadium_choice(NULL),
                  _hp_at_check_kit_choice(NULL),
+                 _hp_at_get_uniparam(NULL),
                  _hp_at_set_min_time(NULL),
                  _hp_at_set_max_time(NULL),
                  _hp_at_set_minutes(NULL),
@@ -1665,6 +1744,7 @@ void set_match_info(MATCH_INFO_STRUCT* mis)
     int match_leg = (int)(mis->match_leg);
     int match_info = (int)(mis->match_info);
 
+    _mi = mis;
     set_context_field_lightuserdata("mis", mis);
 
     if (match_id != 0 && (match_leg == 0 || match_leg == 1)) {
@@ -1890,6 +1970,7 @@ void module_set_teams(module_t *m, DWORD home, DWORD away)
 
 bool module_set_kits(module_t *m, MATCH_INFO_STRUCT *mi)
 {
+    BYTE *home_ki, *away_ki;
     bool result(false);
     if (m->evt_set_kits != 0) {
         EnterCriticalSection(&_cs);
@@ -1897,12 +1978,20 @@ bool module_set_kits(module_t *m, MATCH_INFO_STRUCT *mi)
         lua_xmove(m->L, L, 1);
         // push params
         lua_pushvalue(L, 1); // ctx
+
         lua_newtable(L); // home team info
         lua_pushinteger(L, *((BYTE*)mi + 0x10a));
         lua_setfield(L, -2, "home_kit");
+        home_ki = find_kit_info(get_team_id(mi, 0), *((BYTE*)mi + 0x10a));
+        get_kit_info_to_lua_table(L, -2, home_ki);
+
         lua_newtable(L); // away team info
         lua_pushinteger(L, *((BYTE*)mi + 0x10b));
         lua_setfield(L, -2, "away_kit");
+        away_ki = find_kit_info(get_team_id(mi, 1), *((BYTE*)mi + 0x10b));
+        get_kit_info_to_lua_table(L, -2, away_ki);
+
+        logu_("uniparam: %p\n", get_uniparam());
 
         if (lua_pcall(L, 3, 2, 0) != LUA_OK) {
             const char *err = luaL_checkstring(L, -1);
@@ -1910,6 +1999,14 @@ bool module_set_kits(module_t *m, MATCH_INFO_STRUCT *mi)
             lua_pop(L, 1);
             LeaveCriticalSection(&_cs);
             return false;
+        }
+        if (lua_istable(L, -2)) {
+            // home table
+            set_kit_info_from_lua_table(L, -2, home_ki);
+        }
+        if (lua_istable(L, -1)) {
+            // away table
+            set_kit_info_from_lua_table(L, -1, away_ki);
         }
         lua_pop(L,2);
         LeaveCriticalSection(&_cs);
@@ -3863,6 +3960,7 @@ void sider_context_reset()
     clear_context_fields(_context_fields, _context_fields_count);
     _tournament_id = 0xffff;
     _stadium_choice_count = 0;
+    _mi = NULL;
     logu_("context reset\n");
 }
 
@@ -3978,6 +4076,15 @@ BYTE* get_target_location(BYTE *call_location)
             VirtualProtect(bptr, 8, protection, &newProtection);
             return call_location + 6 + ptr[0];
         }
+    }
+    return NULL;
+}
+
+BYTE* get_target_location2(BYTE *rel_offs_location)
+{
+    if (rel_offs_location) {
+        DWORD* ptr = (DWORD*)(rel_offs_location);
+        return rel_offs_location + 4 + ptr[0];
     }
     return NULL;
 }
@@ -4114,6 +4221,54 @@ void hook_call_rdx_with_head_and_tail_and_moved_call(BYTE *loc, BYTE *p, BYTE *h
 
         log_(L"hook_call_rdx_with_head_and_tail_and_moved_call: hooked at %p (target: %p)\n", loc, p);
     }
+}
+
+static int get_team_id(MATCH_INFO_STRUCT *mi, int home_or_away)
+{
+    DWORD id_encoded = (home_or_away == 0) ? mi->home_team_encoded : mi->away_team_encoded;
+    return decode_team_id(id_encoded);
+}
+
+static int sider_context_refresh_kit(lua_State *L)
+{
+    if (!_mi) {
+        // no match_info_struct
+        lua_pop(L, 1);
+        return 0;
+    }
+    int home_or_away = luaL_checkinteger(L, 1);
+
+    // force refresh of kit
+    if (lua_istable(L, 2)) {
+        BYTE *kit = (BYTE*)_mi + 0x10a + home_or_away;
+        BYTE new_kit = (*kit == 0) ? 1 : 0;
+
+        int team_id = get_team_id(_mi, home_or_away);
+        logu_("refresh_kit:: team_id=%d\n", team_id);
+        BYTE *src_data = find_kit_info(team_id, *kit);
+        if (!src_data) {
+            logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, *kit);
+            lua_pop(L, 1);
+            return 0;
+        }
+        BYTE *dst_data = find_kit_info(team_id, new_kit);
+        if (!dst_data) {
+            logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, new_kit);
+            lua_pop(L, 1);
+            return 0;
+        }
+
+        // copy kit info
+        memcpy(dst_data, src_data, 0x80);
+
+        // apply changes
+        set_kit_info_from_lua_table(L, 2, dst_data);
+
+        // switch
+        *kit = new_kit;
+    }
+    lua_pop(L, 2);
+    return 0;
 }
 
 static int sider_context_register(lua_State *L)
@@ -4300,6 +4455,9 @@ static void push_context_table(lua_State *L)
 
     lua_pushcfunction(L, sider_context_register);
     lua_setfield(L, -2, "register");
+
+    lua_pushcfunction(L, sider_context_refresh_kit);
+    lua_setfield(L, -2, "refresh_kit");
 }
 
 static void push_env_table(lua_State *L, const wchar_t *script_name)
@@ -4834,7 +4992,7 @@ DWORD install_func(LPVOID thread_param) {
     hook_cache_t hcache(cache_file);
 
     // prepare patterns
-#define NUM_PATTERNS 21
+#define NUM_PATTERNS 22
     BYTE *frag[NUM_PATTERNS];
     frag[0] = lcpk_pattern_at_read_file;
     frag[1] = lcpk_pattern_at_get_size;
@@ -4857,6 +5015,7 @@ DWORD install_func(LPVOID thread_param) {
     frag[18] = pattern_def_stadium_name;
     frag[19] = pattern2_set_settings;
     frag[20] = pattern_check_kit_choice;
+    frag[21] = pattern_get_uniparam;
 
     size_t frag_len[NUM_PATTERNS];
     frag_len[0] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_read_file)-1 : 0;
@@ -4880,6 +5039,7 @@ DWORD install_func(LPVOID thread_param) {
     frag_len[18] = _config->_lua_enabled ? sizeof(pattern_def_stadium_name)-1 : 0;
     frag_len[19] = _config->_lua_enabled ? sizeof(pattern2_set_settings)-1 : 0;
     frag_len[20] = _config->_lua_enabled ? sizeof(pattern_check_kit_choice)-1 : 0;
+    frag_len[21] = _config->_lua_enabled ? sizeof(pattern_get_uniparam)-1 : 0;
 
     int offs[NUM_PATTERNS];
     offs[0] = lcpk_offs_at_read_file;
@@ -4903,6 +5063,7 @@ DWORD install_func(LPVOID thread_param) {
     offs[18] = offs_def_stadium_name;
     offs[19] = offs_set_settings;
     offs[20] = offs_check_kit_choice;
+    offs[21] = offs_get_uniparam;
 
     BYTE **addrs[NUM_PATTERNS];
     addrs[0] = &_config->_hp_at_read_file;
@@ -4926,6 +5087,7 @@ DWORD install_func(LPVOID thread_param) {
     addrs[18] = &_config->_hp_at_def_stadium_name;
     addrs[19] = &_config->_hp_at_set_settings;
     addrs[20] = &_config->_hp_at_check_kit_choice;
+    addrs[21] = &_config->_hp_at_get_uniparam;
 
     // check hook cache first
     for (int i=0;; i++) {
@@ -5026,7 +5188,8 @@ bool all_found(config_t *cfg) {
             cfg->_hp_at_def_stadium_name > 0 &&
             cfg->_hp_at_context_reset > 0 &&
             cfg->_hp_at_set_stadium_choice > 0 &&
-            cfg->_hp_at_check_kit_choice > 0
+            cfg->_hp_at_check_kit_choice > 0 &&
+            cfg->_hp_at_get_uniparam > 0
         );
     }
     if (cfg->_num_minutes > 0) {
@@ -5157,6 +5320,8 @@ bool hook_if_all_found() {
                 (BYTE*)pattern_set_stadium_choice_head, sizeof(pattern_set_stadium_choice_head)-1,
                 (BYTE*)pattern_set_stadium_choice_tail, sizeof(pattern_set_stadium_choice_tail)-1);
             hook_call(_config->_hp_at_check_kit_choice, (BYTE*)sider_check_kit_choice_hk, 0);
+
+            _uniparam_base = get_target_location2(_config->_hp_at_get_uniparam);
 
             BYTE *old_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_old;
             BYTE *new_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_new;

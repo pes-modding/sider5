@@ -603,7 +603,7 @@ static BYTE* find_kit_info(int team_id, int which_kit)
                         char *suffix = suffix_map[which_kit];
                         if (memcmp(second_underscore+1, suffix, strlen(suffix))==0) {
                             // match
-                            logu_("refresh_kit:: name: {%s}\n", (char*)uniparam + cf_name_starting_offs);
+                            logu_("find_kit_info:: name: {%s}\n", (char*)uniparam + cf_name_starting_offs);
                             free(kit_config_name);
                             BYTE *p = uniparam + cf_starting_offs;
                             if (*p != 1) {
@@ -1981,15 +1981,15 @@ bool module_set_kits(module_t *m, MATCH_INFO_STRUCT *mi)
 
         lua_newtable(L); // home team info
         lua_pushinteger(L, *((BYTE*)mi + 0x10a));
-        lua_setfield(L, -2, "home_kit");
+        lua_setfield(L, -2, "kit_id");
         home_ki = find_kit_info(get_team_id(mi, 0), *((BYTE*)mi + 0x10a));
-        get_kit_info_to_lua_table(L, -2, home_ki);
+        get_kit_info_to_lua_table(L, -1, home_ki);
 
         lua_newtable(L); // away team info
         lua_pushinteger(L, *((BYTE*)mi + 0x10b));
-        lua_setfield(L, -2, "away_kit");
+        lua_setfield(L, -2, "kit_id");
         away_ki = find_kit_info(get_team_id(mi, 1), *((BYTE*)mi + 0x10b));
-        get_kit_info_to_lua_table(L, -2, away_ki);
+        get_kit_info_to_lua_table(L, -1, away_ki);
 
         logu_("uniparam: %p\n", get_uniparam());
 
@@ -4229,11 +4229,38 @@ static int get_team_id(MATCH_INFO_STRUCT *mi, int home_or_away)
     return decode_team_id(id_encoded);
 }
 
-static int sider_context_refresh_kit(lua_State *L)
+static int sider_context_get_kit(lua_State *L)
 {
     if (!_mi) {
         // no match_info_struct
         lua_pop(L, 1);
+        return 0;
+    }
+    int home_or_away = luaL_checkinteger(L, 1);
+
+    BYTE *kit = (BYTE*)_mi + 0x10a + home_or_away;
+
+    int team_id = get_team_id(_mi, home_or_away);
+    logu_("refresh_kit:: team_id=%d\n", team_id);
+    BYTE *src_data = find_kit_info(team_id, *kit);
+    if (!src_data) {
+        logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, *kit);
+        lua_pop(L, 1);
+        return 0;
+    }
+
+    lua_pop(L, 1);
+
+    lua_newtable(L);
+    get_kit_info_to_lua_table(L, -1, src_data);
+    return 1;
+}
+
+static int sider_context_refresh_kit(lua_State *L)
+{
+    if (!_mi) {
+        // no match_info_struct
+        lua_pop(L, 2);
         return 0;
     }
     int home_or_away = luaL_checkinteger(L, 1);
@@ -4248,13 +4275,13 @@ static int sider_context_refresh_kit(lua_State *L)
         BYTE *src_data = find_kit_info(team_id, *kit);
         if (!src_data) {
             logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, *kit);
-            lua_pop(L, 1);
+            lua_pop(L, 2);
             return 0;
         }
         BYTE *dst_data = find_kit_info(team_id, new_kit);
         if (!dst_data) {
             logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, new_kit);
-            lua_pop(L, 1);
+            lua_pop(L, 2);
             return 0;
         }
 
@@ -4456,8 +4483,12 @@ static void push_context_table(lua_State *L)
     lua_pushcfunction(L, sider_context_register);
     lua_setfield(L, -2, "register");
 
+    lua_newtable(L);
+    lua_pushcfunction(L, sider_context_get_kit);
+    lua_setfield(L, -2, "get");
     lua_pushcfunction(L, sider_context_refresh_kit);
-    lua_setfield(L, -2, "refresh_kit");
+    lua_setfield(L, -2, "refresh");
+    lua_setfield(L, -2, "kits");
 }
 
 static void push_env_table(lua_State *L, const wchar_t *script_name)

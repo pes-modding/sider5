@@ -28,15 +28,15 @@ void set_word_bits(void *vp, int value, int bit_from, int bit_to) {
     for (int i=bit_from; i<bit_to; i++) {
         clear_mask -= (1 << i);
     }
-    logu_("value = %d\n", value);
-    logu_("clear_mask = 0x%04x\n", clear_mask);
+    //logu_("value = %d\n", value);
+    //logu_("clear_mask = 0x%04x\n", clear_mask);
     // clear target bits
-    logu_("word was: 0x%04x\n", *p);
+    //logu_("word was: 0x%04x\n", *p);
     *p &= clear_mask;
-    logu_("after clear mask: 0x%04x\n", *p);
+    //logu_("after clear mask: 0x%04x\n", *p);
     // set desired value
     *p |= value << bit_from;
-    logu_("word now: 0x%04x\n", *p);
+    //logu_("word now: 0x%04x\n", *p);
 }
 
 int get_word_bits(void *vp, int bit_from, int bit_to) {
@@ -46,15 +46,15 @@ int get_word_bits(void *vp, int bit_from, int bit_to) {
     for (int i=bit_from; i<bit_to; i++) {
         clear_mask += (1 << i);
     }
-    logu_("clear_mask = 0x%04x\n", clear_mask);
+    //logu_("clear_mask = 0x%04x\n", clear_mask);
     // clear non-target bits
     WORD w = *p;
-    logu_("word was: 0x%04x\n", w);
+    //logu_("word was: 0x%04x\n", w);
     w &= clear_mask;
-    logu_("after clear mask: 0x%04x\n", w);
+    //logu_("after clear mask: 0x%04x\n", w);
     // get desired bits
     int value = (int)(w >> bit_from);
-    logu_("value: %d\n", value);
+    //logu_("value: %d\n", value);
     return value;
 }
 
@@ -355,6 +355,8 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst) {
 }
 
 void get_kit_info_to_lua_table(lua_State *L, int index, BYTE *src) {
+    index--; // adjust index, because we will be pushing values
+
     // shirt parameters
     /**
     ShortSleevesModel=1       ; 1=Normal

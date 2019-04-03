@@ -602,15 +602,13 @@ static BYTE* find_kit_info(int team_id, int which_kit)
                     if (team_id == id) {
                         char *suffix = suffix_map[which_kit];
                         if (memcmp(second_underscore+1, suffix, strlen(suffix))==0) {
-                            // match
-                            logu_("find_kit_info:: name: {%s}\n", (char*)uniparam + cf_name_starting_offs);
-                            free(kit_config_name);
                             BYTE *p = uniparam + cf_starting_offs;
-                            if (*p != 1) {
-                                // non-licensed
-                                p += 0x60;
+                            if (*p == 1) {
+                                // matched a licensed kit
+                                logu_("find_kit_info:: name: {%s}\n", (char*)uniparam + cf_name_starting_offs);
+                                free(kit_config_name);
+                                return p;
                             }
-                            return p;
                         }
                     }
                 }

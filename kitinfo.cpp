@@ -34,8 +34,16 @@ void set_word_bits(void *vp, int value, int bit_from, int bit_to) {
     //logu_("word was: 0x%04x\n", *p);
     *p &= clear_mask;
     //logu_("after clear mask: 0x%04x\n", *p);
-    // set desired value
-    *p |= value << bit_from;
+    // clamp the value so that we don't overwrite
+    // bits that are not ours
+    WORD value_clamp_mask = 0x0000;
+    for (int i=0; i<bit_to-bit_from; i++) {
+        value_clamp_mask += (1 << i);
+    }
+    WORD w = value;
+    w &= value_clamp_mask;
+    // set clamped value
+    *p |= w << bit_from;
     //logu_("word now: 0x%04x\n", *p);
 }
 
@@ -155,7 +163,7 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst) {
     ; shirt - front side
     ChestNumberX=5       ; 0 to 31
     ChestNumberY=5       ; 0 to 7
-    ChestNumberSize=14       ; 0 to 15
+    ChestNumberSize=14       ; 0 to 31
     **/
     lua_getfield(L, index, "ChestNumberX");
     if (lua_isnumber(L, -1)) {
@@ -169,7 +177,7 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst) {
     lua_pop(L, 1);
     lua_getfield(L, index, "ChestNumberSize");
     if (lua_isnumber(L, -1)) {
-        set_word_bits(dst+0x1a, luaL_checkinteger(L, -1), 8, 12);
+        set_word_bits(dst+0x1a, luaL_checkinteger(L, -1), 8, 13);
     }
     lua_pop(L, 1);
 
@@ -355,6 +363,11 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst) {
 }
 
 void get_kit_info_to_lua_table(lua_State *L, int index, BYTE *src) {
+    if (!src) {
+        // nothing to do
+        return;
+    }
+
     index--; // adjust index, because we will be pushing values
 
     // shirt parameters
@@ -369,6 +382,8 @@ void get_kit_info_to_lua_table(lua_State *L, int index, BYTE *src) {
     **/
     lua_pushinteger(L, src[0]);
     lua_setfield(L, index, "ShortSleevesModel");
+    lua_pushinteger(L, src[1]);
+    lua_setfield(L, index, "ShirtModel");
     lua_pushinteger(L, src[2]);
     lua_setfield(L, index, "LongSleevesType");
     lua_pushinteger(L, src[0x14]);
@@ -409,13 +424,13 @@ void get_kit_info_to_lua_table(lua_State *L, int index, BYTE *src) {
     ; shirt - front side
     ChestNumberX=5       ; 0 to 31
     ChestNumberY=5       ; 0 to 7
-    ChestNumberSize=14       ; 0 to 15
+    ChestNumberSize=14       ; 0 to 31
     **/
     lua_pushinteger(L, get_word_bits(src+0x1a, 4, 8));
     lua_setfield(L, index, "ChestNumberX");
     lua_pushinteger(L, get_word_bits(src+0x1a, 0, 3));
     lua_setfield(L, index, "ChestNumberY");
-    lua_pushinteger(L, get_word_bits(src+0x1a, 8, 12));
+    lua_pushinteger(L, get_word_bits(src+0x1a, 8, 13));
     lua_setfield(L, index, "ChestNumberSize");
 
     /**

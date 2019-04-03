@@ -67,6 +67,11 @@ int get_word_bits(void *vp, int bit_from, int bit_to) {
 }
 
 void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst) {
+    if (!dst) {
+        // nothing to do
+        return;
+    }
+
     // shirt parameters
     /**
     ShortSleevesModel=1       ; 1=Normal

@@ -15,6 +15,7 @@ local away_next_kit
 
 local patterns = {
     ["\\(k%d+p%d+)%.ftex$"] = "KitFile",
+    ["\\(k%d+p%d+_srm)%.ftex$"] = "KitFile_srm",
     ["\\(k%d+p%d+_c)%.ftex$"] = "ChestNumbersFile",
     ["\\(k%d+p%d+_l)%.ftex$"] = "LegNumbersFile",
     ["\\(k%d+p%d+_b)%.ftex$"] = "BackNumbersFile",
@@ -22,14 +23,15 @@ local patterns = {
 }
 local ks_player_formats = {
     KitFile = "k%dp%d",
+    KitFile_srm = "k%dp%d_srm",
     ChestNumbersFile = "k%dp%d_c",
     LegNumbersFile = "k%dp%d_l",
     BackNumbersFile = "k%dp%d_b",
     NameFontFile = "k%dp%d_n",
 }
 local filename_keys = {
-    "KitFile", "ChestNumbersFile", "LegNumbersFile",
-    "BackNumbersFile", "NameFontFile",
+    "KitFile", "KitFile_srm", "ChestNumbersFile",
+    "LegNumbersFile", "BackNumbersFile", "NameFontFile",
 }
 
 local kfile_remap = {}
@@ -68,14 +70,20 @@ local function config_update_filenames(team_id, ord, ki)
     for _,k in ipairs(filename_keys) do
         local attr = kit_attrs[k]
         if attr and attr ~= "" then
-            local fullpath = string.format("%s%s\\%s\\%s.ftex", kroot, path, kit_path, attr)
-            log("checking: " .. fullpath)
-            if file_exists(fullpath) then
+            local pathname = string.format("%s\\%s\\%s.ftex", path, kit_path, attr)
+            log("checking: " .. kroot .. pathname)
+            if file_exists(kroot .. pathname) then
+                --[[
+                rewrite filename in uniparam config to a "fake" file
+                that uniquely maps to a specific kit for this team.
+                Later, when the game requests this texture, we use
+                "livecpk_make_key" and "livecpk_get_filepath" to feed
+                the actual ftex from GDB
+                --]]
                 local fmt = ks_player_formats[k]
                 if fmt then
                     local fkey = string.format(fmt, team_id, ord)
-                    log("storing with fkey: " .. fkey)
-                    kfile_remap[fkey] = fullpath
+                    kfile_remap[fkey] = pathname
                     kit_attrs[k] = fkey
                 end
             end
@@ -103,6 +111,8 @@ local function load_config(filename)
     local key, value
     local f = io.open(filename)
     if not f then
+        -- don't let io.lines raise an error, if config is missing
+        -- instead, just ignore that kit
         return
     end
     for line in io.lines(filename) do
@@ -139,7 +149,9 @@ local function load_configs(team_id)
     return t
 end
 
-local function dump_config(filename, t)
+local function dump_kit_config(filename, t)
+    -- utility method, for easy dumping of configs to disk
+    -- (for debugging purposes)
     local f = assert(io.open(filename,"wt"))
     f:write("; Kit config dumped by kserv.lua\n\n")
     local keys = {}
@@ -153,22 +165,50 @@ local function dump_config(filename, t)
     f:close()
 end
 
-function m.set_kits(ctx, home_info, away_info)
-    log(string.format("home_info (team=%d): %s", ctx.home_team, t2s(home_info)))
-    log(string.format("away_info (team=%d): %s", ctx.away_team, t2s(away_info)))
-    --dump_config(string.format("%s%d-%s-config.txt", ctx.sider_dir, ctx.home_team, home_info.kit_id), home_info)
-    --dump_config(string.format("%s%d-%s-config.txt", ctx.sider_dir, ctx.away_team, away_info.kit_id), away_info)
-
+local function prep_home_team(ctx)
     -- see what kits are available
     home_kits = load_configs(ctx.home_team)
-    away_kits = load_configs(ctx.away_team)
-
-    -- initialize iterators
     home_next_kit = home_kits and 0 or nil
+end
+
+local function prep_away_team(ctx)
+    -- see what kits are available
+    away_kits = load_configs(ctx.away_team)
     away_next_kit = away_kits and 0 or nil
 end
 
+function m.set_kits(ctx, home_info, away_info)
+    log(string.format("home_info (team=%d): %s", ctx.home_team, t2s(home_info)))
+    log(string.format("away_info (team=%d): %s", ctx.away_team, t2s(away_info)))
+
+    --dump_kit_config(string.format("%s%d-%s-config.txt", ctx.sider_dir, ctx.home_team, home_info.kit_id), home_info)
+    --dump_kit_config(string.format("%s%d-%s-config.txt", ctx.sider_dir, ctx.away_team, away_info.kit_id), away_info)
+
+    prep_home_team(ctx)
+    prep_away_team(ctx)
+
+    -- load corresponding kits, if available in GDB
+    local hi
+    if home_kits and #home_kits > 0 then
+        local cfg = home_kits[home_info.kit_id+1]
+        hi = cfg and cfg[2] or nil
+        if hi then
+            log("loading home kit: "  .. cfg[1])
+        end
+    end
+    local ai
+    if away_kits and #away_kits > 0 then
+        local cfg = away_kits[away_info.kit_id+1]
+        ai = cfg and cfg[2] or nil
+        if ai then
+            log("loading away kit: "  .. cfg[1])
+        end
+    end
+    return hi, ai
+end
+
 function m.make_key(ctx, filename)
+    --log("wants: " .. filename)
     for patt,attr in pairs(patterns) do
         local fkey = string.match(filename, patt)
         if fkey then
@@ -184,34 +224,55 @@ function m.make_key(ctx, filename)
 end
 
 function m.get_filepath(ctx, filename, key)
-    if key ~= "" then
-        return key
+    if key and key ~= "" then
+        return kroot .. key
     end
 end
 
 function m.key_down(ctx, vkey)
-    if vkey == 0x39 then -- next home kit
-        home_kits = load_configs(ctx.home_team)
+    if vkey == 0x30 then
+        kmap = load_map(kroot .. "\\map.txt")
+        log("Reloaded map from: " .. kroot .. "\\map.txt")
+    elseif vkey == 0x36 then -- next home kit
+        if not home_kits then
+            prep_home_team(ctx)
+        end
         if home_kits and #home_kits > 0 then
             -- advance the iter
             home_next_kit = (home_next_kit % #home_kits) + 1
             log("home_next_kit: " .. home_next_kit)
             local curr = home_kits[home_next_kit]
             local cfg = { curr[1], table_copy(curr[2]) }
+            -- insert _srm property, if not there
+            -- (Standard configs do not have it, because the game
+            -- just adds an "_srm" suffix to KitFile. But because
+            -- we are remapping names, we need to account for that)
+            if not cfg[2].KitFile_srm then
+                cfg[2].KitFile_srm = cfg[2].KitFile .. "_srm"
+            end
             -- trick: mangle the filenames so that we can livecpk them later
             -- (only do that for files that actually exist in kitserver content)
             config_update_filenames(ctx.home_team, home_next_kit, cfg)
             -- trigger refresh
             ctx.kits.refresh(0, cfg[2])
         end
-    elseif vkey == 0x30 then -- next away kit
-        away_kits = load_configs(ctx.away_team)
+    elseif vkey == 0x37 then -- next away kit
+        if not away_kits then
+            prep_away_team(ctx)
+        end
         if away_kits and #away_kits > 0 then
             -- advance the iter
             away_next_kit = (away_next_kit % #away_kits) + 1
             log("away_next_kit: " .. away_next_kit)
             local curr = away_kits[away_next_kit]
             local cfg = { curr[1], table_copy(curr[2]) }
+            -- insert _srm property, if not there
+            -- (Standard configs do not have it, because the game
+            -- just adds an "_srm" suffix to KitFile. But because
+            -- we are remapping names, we need to account for that)
+            if not cfg[2].KitFile_srm then
+                cfg[2].KitFile_srm = cfg[2].KitFile .. "_srm"
+            end
             -- trick: mangle the filenames so that we can livecpk them later
             -- (only do that for files that actually exist in kitserver content)
             config_update_filenames(ctx.away_team, away_next_kit, cfg)
@@ -222,7 +283,7 @@ function m.key_down(ctx, vkey)
 end
 
 function m.overlay_on(ctx)
-    return "[9] - home: next kitserver kit, [0] - away: next kitserver kit"
+    return "[6] - switch home kit, [7] - switch away kit, [0] - reload map"
 end
 
 function m.init(ctx)

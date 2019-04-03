@@ -3,7 +3,7 @@
 
 local m = {}
 
-m.version = "1.1"
+m.version = "1.2"
 
 local kroot = ".\\content\\kit-server\\"
 local kmap
@@ -61,36 +61,6 @@ local function table_copy(t)
     return new_t
 end
 
-local function config_update_filenames(team_id, ord, ki)
-    local path = kmap[team_id]
-    if not path then
-        return
-    end
-    local kit_path, kit_attrs = ki[1], ki[2]
-    for _,k in ipairs(filename_keys) do
-        local attr = kit_attrs[k]
-        if attr and attr ~= "" then
-            local pathname = string.format("%s\\%s\\%s.ftex", path, kit_path, attr)
-            log("checking: " .. kroot .. pathname)
-            if file_exists(kroot .. pathname) then
-                --[[
-                rewrite filename in uniparam config to a "fake" file
-                that uniquely maps to a specific kit for this team.
-                Later, when the game requests this texture, we use
-                "livecpk_make_key" and "livecpk_get_filepath" to feed
-                the actual ftex from GDB
-                --]]
-                local fmt = ks_player_formats[k]
-                if fmt then
-                    local fkey = string.format(fmt, team_id, ord)
-                    kfile_remap[fkey] = pathname
-                    kit_attrs[k] = fkey
-                end
-            end
-        end
-    end
-end
-
 local function load_map(filename)
     local map = {}
     for line in io.lines(filename) do
@@ -127,7 +97,7 @@ local function load_config(filename)
     return cfg
 end
 
-local function load_configs(team_id)
+local function load_configs_for_team(team_id)
     local path = kmap[team_id]
     if not path then
         -- no kits for this team
@@ -167,14 +137,56 @@ end
 
 local function prep_home_team(ctx)
     -- see what kits are available
-    home_kits = load_configs(ctx.home_team)
+    home_kits = load_configs_for_team(ctx.home_team)
     home_next_kit = home_kits and 0 or nil
 end
 
 local function prep_away_team(ctx)
     -- see what kits are available
-    away_kits = load_configs(ctx.away_team)
+    away_kits = load_configs_for_team(ctx.away_team)
     away_next_kit = away_kits and 0 or nil
+end
+
+local function config_update_filenames(team_id, ord, kit_path, kit_cfg)
+    local path = kmap[team_id]
+    if not path then
+        return
+    end
+    for _,k in ipairs(filename_keys) do
+        local attr = kit_cfg[k]
+        if attr and attr ~= "" then
+            local pathname = string.format("%s\\%s\\%s.ftex", path, kit_path, attr)
+            log("checking: " .. kroot .. pathname)
+            if file_exists(kroot .. pathname) then
+                --[[
+                rewrite filename in uniparam config to a "fake" file
+                that uniquely maps to a specific kit for this team.
+                Later, when the game requests this texture, we use
+                "livecpk_make_key" and "livecpk_get_filepath" to feed
+                the actual ftex from GDB
+                --]]
+                local fmt = ks_player_formats[k]
+                if fmt then
+                    local fkey = string.format(fmt, team_id, ord)
+                    kfile_remap[fkey] = pathname
+                    kit_cfg[k] = fkey
+                end
+            end
+        end
+    end
+end
+
+local function update_kit_config(team_id, kit_ord, kit_path, cfg)
+    -- insert _srm property, if not there
+    -- (Standard configs do not have it, because the game
+    -- just adds an "_srm" suffix to KitFile. But because
+    -- we are remapping names, we need to account for that)
+    if not cfg.KitFile_srm then
+        cfg.KitFile_srm = cfg.KitFile .. "_srm"
+    end
+    -- trick: mangle the filenames so that we can livecpk them later
+    -- (only do that for files that actually exist in kitserver content)
+    config_update_filenames(team_id, kit_ord, kit_path, cfg)
 end
 
 function m.set_kits(ctx, home_info, away_info)
@@ -190,18 +202,26 @@ function m.set_kits(ctx, home_info, away_info)
     -- load corresponding kits, if available in GDB
     local hi
     if home_kits and #home_kits > 0 then
-        local cfg = home_kits[home_info.kit_id+1]
-        hi = cfg and cfg[2] or nil
+        local ki = home_kits[home_info.kit_id+1]
+        hi = ki and ki[2] or nil
         if hi then
-            log("loading home kit: "  .. cfg[1])
+            local kit_path = ki[1]
+            log("loading home kit: "  .. kit_path)
+            home_next_kit = home_info.kit_id+1
+            update_kit_config(ctx.home_team, home_next_kit, kit_path, hi)
+            log(string.format("home cfg returned (%s): %s", kit_path, t2s(hi)))
         end
     end
     local ai
     if away_kits and #away_kits > 0 then
-        local cfg = away_kits[away_info.kit_id+1]
-        ai = cfg and cfg[2] or nil
+        local ki = away_kits[away_info.kit_id+1]
+        ai = ki and ki[2] or nil
         if ai then
-            log("loading away kit: "  .. cfg[1])
+            local kit_path = ki[1]
+            log("loading away kit: "  .. kit_path)
+            away_next_kit = away_info.kit_id+1
+            update_kit_config(ctx.away_team, away_next_kit, kit_path, ai)
+            log(string.format("away cfg returned (%s): %s", kit_path, t2s(ai)))
         end
     end
     return hi, ai
@@ -241,20 +261,12 @@ function m.key_down(ctx, vkey)
             -- advance the iter
             home_next_kit = (home_next_kit % #home_kits) + 1
             log("home_next_kit: " .. home_next_kit)
+            -- update cfg
             local curr = home_kits[home_next_kit]
-            local cfg = { curr[1], table_copy(curr[2]) }
-            -- insert _srm property, if not there
-            -- (Standard configs do not have it, because the game
-            -- just adds an "_srm" suffix to KitFile. But because
-            -- we are remapping names, we need to account for that)
-            if not cfg[2].KitFile_srm then
-                cfg[2].KitFile_srm = cfg[2].KitFile .. "_srm"
-            end
-            -- trick: mangle the filenames so that we can livecpk them later
-            -- (only do that for files that actually exist in kitserver content)
-            config_update_filenames(ctx.home_team, home_next_kit, cfg)
+            local cfg = table_copy(curr[2])
+            update_kit_config(ctx.home_team, home_next_kit, curr[1], cfg)
             -- trigger refresh
-            ctx.kits.refresh(0, cfg[2])
+            ctx.kits.refresh(0, cfg)
         end
     elseif vkey == 0x37 then -- next away kit
         if not away_kits then
@@ -264,20 +276,12 @@ function m.key_down(ctx, vkey)
             -- advance the iter
             away_next_kit = (away_next_kit % #away_kits) + 1
             log("away_next_kit: " .. away_next_kit)
+            -- update cfg
             local curr = away_kits[away_next_kit]
-            local cfg = { curr[1], table_copy(curr[2]) }
-            -- insert _srm property, if not there
-            -- (Standard configs do not have it, because the game
-            -- just adds an "_srm" suffix to KitFile. But because
-            -- we are remapping names, we need to account for that)
-            if not cfg[2].KitFile_srm then
-                cfg[2].KitFile_srm = cfg[2].KitFile .. "_srm"
-            end
-            -- trick: mangle the filenames so that we can livecpk them later
-            -- (only do that for files that actually exist in kitserver content)
-            config_update_filenames(ctx.away_team, away_next_kit, cfg)
+            local cfg = table_copy(curr[2])
+            update_kit_config(ctx.away_team, away_next_kit, curr[1], cfg)
             -- trigger refresh
-            ctx.kits.refresh(1, cfg[2])
+            ctx.kits.refresh(1, cfg)
         end
     end
 end

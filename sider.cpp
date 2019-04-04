@@ -75,7 +75,7 @@ struct FILE_LOAD_INFO {
     BYTE *vtable;
     FILE_HANDLE_INFO *file_handle_info;
     DWORD dw0[2];
-    LONGLONG two;
+    LONGLONG type;
     DWORD dw1[4];
     char *cpk_filename;
     LONGLONG cpk_filesize;
@@ -500,6 +500,10 @@ extern "C" void sider_set_stadium_choice_hk();
 extern "C" void sider_check_kit_choice(MATCH_INFO_STRUCT *mi, DWORD home_or_away);
 
 extern "C" void sider_check_kit_choice_hk();
+
+extern "C" DWORD sider_data_ready(FILE_LOAD_INFO *fli);
+
+extern "C" void sider_data_ready_hk();
 
 static DWORD dwThreadId;
 static DWORD hookingThreadId = 0;
@@ -934,6 +938,7 @@ public:
     BYTE *_hp_at_set_stadium_choice;
     BYTE *_hp_at_check_kit_choice;
     BYTE *_hp_at_get_uniparam;
+    BYTE *_hp_at_data_ready;
 
     BYTE *_hp_at_set_min_time;
     BYTE *_hp_at_set_max_time;
@@ -987,6 +992,7 @@ public:
                  _hp_at_set_stadium_choice(NULL),
                  _hp_at_check_kit_choice(NULL),
                  _hp_at_get_uniparam(NULL),
+                 _hp_at_data_ready(NULL),
                  _hp_at_set_min_time(NULL),
                  _hp_at_set_max_time(NULL),
                  _hp_at_set_minutes(NULL),
@@ -1346,6 +1352,7 @@ struct module_t {
     int evt_lcpk_get_filepath;
     int evt_lcpk_rewrite;
     int evt_lcpk_read;
+    int evt_lcpk_data_ready;
     int evt_set_teams;
     int evt_set_kits;
     /*
@@ -2256,6 +2263,24 @@ void module_read(module_t *m, const char *file_name, void *data, LONGLONG len, F
         lua_pushnil(L);
     }
     if (lua_pcall(L, 6, 0, 0) != LUA_OK) {
+        const char *err = luaL_checkstring(L, -1);
+        logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+        lua_pop(L, 1);
+    }
+    LeaveCriticalSection(&_cs);
+}
+
+void module_data_ready(module_t *m, const char *file_name, void *data, LONGLONG len)
+{
+    EnterCriticalSection(&_cs);
+    lua_pushvalue(m->L, m->evt_lcpk_data_ready);
+    lua_xmove(m->L, L, 1);
+    // push params
+    lua_pushvalue(L, 1); // ctx
+    lua_pushstring(L, file_name);
+    lua_pushlightuserdata(L, data);
+    lua_pushinteger(L, len);
+    if (lua_pcall(L, 4, 0, 0) != LUA_OK) {
         const char *err = luaL_checkstring(L, -1);
         logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
         lua_pop(L, 1);
@@ -4041,6 +4066,35 @@ void sider_set_stadium_choice(MATCH_INFO_STRUCT *mi, BYTE stadium_choice)
     }
 }
 
+DWORD sider_data_ready(FILE_LOAD_INFO *fli)
+{
+    if (!fli) {
+        DBG(1024) logu_("sider_data_ready:: WARN: fli is NULL\n");
+        return 0;
+    }
+    char *filename  = *(char**)((BYTE*)fli + 0x148);
+    if (!filename) {
+        DBG(1024) logu_("sider_data_ready:: WARN: filename is NULL\n");
+        return 0;
+    }
+    DBG(1024) logu_("sider_data_ready:: {%s}, buffer=%p, size=0x%x, total=0x%x, sofar=0x%x, type=%d\n",
+        filename, fli->buffer, fli->filesize, fli->total_bytes_to_read, fli->bytes_read_so_far, fli->type);
+
+    if (fli->type == 7) { // completely read and CRI-unpacked
+        // livecpk_data_ready
+        if (_config->_lua_enabled) {
+            list<module_t*>::iterator i;
+            for (i = _modules.begin(); i != _modules.end(); i++) {
+                module_t *m = *i;
+                if (m->evt_lcpk_data_ready != 0) {
+                    module_data_ready(m, filename, fli->buffer, fli->filesize);
+                }
+            }
+        }
+    }
+    return 0;
+}
+
 void sider_check_kit_choice(MATCH_INFO_STRUCT *mi, DWORD home_or_away)
 {
     logu_("check_kit_choice: mi=%p, home_or_away=%d\n", mi, home_or_away);
@@ -4099,6 +4153,23 @@ void hook_indirect_call(BYTE *loc, BYTE *p) {
         BYTE** v = (BYTE**)addr_loc;
         *v = p;
         log_(L"hook_indirect_call: hooked at %p (target: %p)\n", loc, p);
+    }
+}
+
+void hook_jmp(BYTE *loc, BYTE *p, size_t nops) {
+    if (!loc) {
+        return;
+    }
+    DWORD protection = 0;
+    DWORD newProtection = PAGE_EXECUTE_READWRITE;
+    if (VirtualProtect(loc, 12 + nops, newProtection, &protection)) {
+        memcpy(loc, "\x48\xb8", 2);
+        memcpy(loc+2, &p, sizeof(BYTE*));  // mov rax,<target_addr>
+        memcpy(loc+10, "\xff\xe0", 2);      // jmp rax
+        if (nops) {
+            memset(loc+12, '\x90', nops);  // nop ;one of more nops for padding
+        }
+        log_(L"hook_jmp: hooked at %p (target: %p)\n", loc, p);
     }
 }
 
@@ -4332,6 +4403,12 @@ static int sider_context_register(lua_State *L)
         lua_pushvalue(L, -1);
         lua_xmove(L, _curr_m->L, 1);
         _curr_m->evt_lcpk_read = lua_gettop(_curr_m->L);
+        logu_("Registered for \"%s\" event\n", event_key);
+    }
+    else if (strcmp(event_key, "livecpk_data_ready")==0) {
+        lua_pushvalue(L, -1);
+        lua_xmove(L, _curr_m->L, 1);
+        _curr_m->evt_lcpk_data_ready = lua_gettop(_curr_m->L);
         logu_("Registered for \"%s\" event\n", event_key);
     }
     else if (strcmp(event_key, "set_teams")==0) {
@@ -5021,7 +5098,7 @@ DWORD install_func(LPVOID thread_param) {
     hook_cache_t hcache(cache_file);
 
     // prepare patterns
-#define NUM_PATTERNS 22
+#define NUM_PATTERNS 23
     BYTE *frag[NUM_PATTERNS];
     frag[0] = lcpk_pattern_at_read_file;
     frag[1] = lcpk_pattern_at_get_size;
@@ -5045,6 +5122,7 @@ DWORD install_func(LPVOID thread_param) {
     frag[19] = pattern2_set_settings;
     frag[20] = pattern_check_kit_choice;
     frag[21] = pattern_get_uniparam;
+    frag[22] = pattern_data_ready;
 
     size_t frag_len[NUM_PATTERNS];
     frag_len[0] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_read_file)-1 : 0;
@@ -5069,6 +5147,7 @@ DWORD install_func(LPVOID thread_param) {
     frag_len[19] = _config->_lua_enabled ? sizeof(pattern2_set_settings)-1 : 0;
     frag_len[20] = _config->_lua_enabled ? sizeof(pattern_check_kit_choice)-1 : 0;
     frag_len[21] = _config->_lua_enabled ? sizeof(pattern_get_uniparam)-1 : 0;
+    frag_len[22] = _config->_lua_enabled ? sizeof(pattern_data_ready)-1 : 0;
 
     int offs[NUM_PATTERNS];
     offs[0] = lcpk_offs_at_read_file;
@@ -5093,6 +5172,7 @@ DWORD install_func(LPVOID thread_param) {
     offs[19] = offs_set_settings;
     offs[20] = offs_check_kit_choice;
     offs[21] = offs_get_uniparam;
+    offs[22] = offs_data_ready;
 
     BYTE **addrs[NUM_PATTERNS];
     addrs[0] = &_config->_hp_at_read_file;
@@ -5117,6 +5197,7 @@ DWORD install_func(LPVOID thread_param) {
     addrs[19] = &_config->_hp_at_set_settings;
     addrs[20] = &_config->_hp_at_check_kit_choice;
     addrs[21] = &_config->_hp_at_get_uniparam;
+    addrs[22] = &_config->_hp_at_data_ready;
 
     // check hook cache first
     for (int i=0;; i++) {
@@ -5218,7 +5299,8 @@ bool all_found(config_t *cfg) {
             cfg->_hp_at_context_reset > 0 &&
             cfg->_hp_at_set_stadium_choice > 0 &&
             cfg->_hp_at_check_kit_choice > 0 &&
-            cfg->_hp_at_get_uniparam > 0
+            cfg->_hp_at_get_uniparam > 0 &&
+            cfg->_hp_at_data_ready > 0
         );
     }
     if (cfg->_num_minutes > 0) {
@@ -5351,6 +5433,8 @@ bool hook_if_all_found() {
             hook_call(_config->_hp_at_check_kit_choice, (BYTE*)sider_check_kit_choice_hk, 0);
 
             _uniparam_base = get_target_location2(_config->_hp_at_get_uniparam);
+
+            hook_jmp(_config->_hp_at_data_ready, (BYTE*)sider_data_ready_hk, 0);
 
             BYTE *old_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_old;
             BYTE *new_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_new;

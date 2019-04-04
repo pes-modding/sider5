@@ -381,4 +381,23 @@ local offs = memory.unpack("i32", memory.read(addr-4, 4))
 base_addr = addr  + offs
 */
 
+/*
+000000014000E877 | C7 43 18 07 00 00 00            | mov dword ptr ds:[rbx+18],7            |
+000000014000E87E | 89 43 6C                        | mov dword ptr ds:[rbx+6C],eax          |
+000000014000E881 | 83 7B 18 06                     | cmp dword ptr ds:[rbx+18],6            |
+000000014000E885 | 75 08                           | jne pes2019.14000E88F                  |
+...
+000000014000E8A0 | 48 8B 5C 24 30                  | mov rbx,qword ptr ss:[rsp+30]          |
+000000014000E8A5 | 48 83 C4 20                     | add rsp,20                             |
+000000014000E8A9 | 5D                              | pop rbp                                |
+000000014000E8AA | C3                              | ret                                    |
+000000014000E8AB | CC                              | int3                                   |
+*/
+static BYTE pattern_data_ready[17] =
+    "\xc7\x43\x18\x07\x00\x00\x00"
+    "\x89\x43\x6c"
+    "\x83\x7b\x18\x06"
+    "\x75\x08";
+static int offs_data_ready = 0xa0-0x77;
+
 #endif

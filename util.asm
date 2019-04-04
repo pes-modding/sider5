@@ -21,6 +21,7 @@ extern sider_stadium_name:proc
 extern sider_def_stadium_name:proc
 extern sider_set_stadium_choice:proc
 extern sider_check_kit_choice:proc
+extern sider_data_ready:proc
 
 .code
 sider_read_file_hk proc
@@ -362,5 +363,40 @@ sider_check_kit_choice_hk proc
         ret
 
 sider_check_kit_choice_hk endp
+
+;000000014000E877 | C7 43 18 07 00 00 00            | mov dword ptr ds:[rbx+18],7            |
+;000000014000E87E | 89 43 6C                        | mov dword ptr ds:[rbx+6C],eax          |
+;000000014000E881 | 83 7B 18 06                     | cmp dword ptr ds:[rbx+18],6            |
+;000000014000E885 | 75 08                           | jne pes2019.14000E88F                  |
+;...
+;000000014000E8A0 | 48 8B 5C 24 30                  | mov rbx,qword ptr ss:[rsp+30]          |
+;000000014000E8A5 | 48 83 C4 20                     | add rsp,20                             |
+;000000014000E8A9 | 5D                              | pop rbp                                |
+;000000014000E8AA | C3                              | ret                                    |
+
+sider_data_ready_hk proc
+
+        push    rcx
+        push    rdx
+        push    r8
+        push    r9
+        push    r10
+        push    r11
+        sub     rsp,20h   ; we get here via jmp, so stack already aligned
+        mov     rcx,rbx   ; buffer structure
+        call    sider_data_ready
+        add     rsp,20h
+        pop     r11
+        pop     r10
+        pop     r9
+        pop     r8
+        pop     rdx
+        pop     rcx
+        mov     rbx,qword ptr [rsp+30h]  ; original replaced code
+        add     rsp,20h
+        pop     rbp
+        ret
+
+sider_data_ready_hk endp
 
 end

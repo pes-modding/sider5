@@ -2,6 +2,11 @@ Sider 5 Release History
 =======================
 
 
+April 4, 2019
+v5.2.3
+- support for 1.05.00 game exe
+
+
 March 16, 2019
 v5.2.2
 - stability fixes: memory.read and memory.search no longer

@@ -7,7 +7,7 @@ int CreateDirectoryA(char *path, uint64_t pattrs);
 ]]
 local null_ptr = ffi.new("uint64_t")
 
-local dumproot = "c:\\users\\anton\\desktop\\facedump\\"
+local dumproot = ".\\facedump\\"
 
 -- change this to whatever "real" faces you want to dump
 local face_ids = {

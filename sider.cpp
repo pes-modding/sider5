@@ -176,6 +176,8 @@ TROPHY_TABLE_ENTRY _trophy_table[TT_LEN];
 typedef unordered_map<WORD,DWORD> trophy_map_t;
 trophy_map_t *_trophy_map;
 
+BYTE _variations[128];
+
 WORD _tournament_id = 0xffff;
 char _ball_name[256];
 char _stadium_name[256];
@@ -3590,7 +3592,7 @@ BOOL sider_read_file(
     FILE_LOAD_INFO *fli;
 
     //log_(L"rs (R12) = %p\n", rs);
-    if (rs) {
+    if (rs && !IsBadReadPtr(rs, sizeof(struct READ_STRUCT))) {
         if (_config->_lua_enabled && _rewrite_count > 0) do_rewrite(rs->filename);
         DBG(1) logu_("read_file:: rs->filesize: %llx, rs->offset: %llx, rs->filename: %s\n",
             rs->filesize, rs->offset.full, rs->filename);
@@ -3672,7 +3674,7 @@ BOOL sider_read_file(
         //SetFilePointer(orgHandle, *lpNumberOfBytesRead, 0, FILE_CURRENT);
     }
 
-    if (rs) {
+    if (rs && !IsBadReadPtr(rs, sizeof(struct READ_STRUCT))) {
         // livecpk_read
         if (num_bytes_read > 0 && _config->_lua_enabled) {
             list<module_t*>::iterator i;
@@ -5098,7 +5100,7 @@ DWORD install_func(LPVOID thread_param) {
     hook_cache_t hcache(cache_file);
 
     // prepare patterns
-#define NUM_PATTERNS 23
+#define NUM_PATTERNS 24
     BYTE *frag[NUM_PATTERNS];
     frag[0] = lcpk_pattern_at_read_file;
     frag[1] = lcpk_pattern_at_get_size;
@@ -5123,6 +5125,13 @@ DWORD install_func(LPVOID thread_param) {
     frag[20] = pattern_check_kit_choice;
     frag[21] = pattern_get_uniparam;
     frag[22] = pattern_data_ready;
+    frag[23] = lcpk_pattern2_at_read_file;
+
+    memset(_variations, 0xff, sizeof(_variations));
+    _variations[0] = 23;
+    _variations[6] = 19;
+    _variations[19] = 6;
+    _variations[23] = 0;
 
     size_t frag_len[NUM_PATTERNS];
     frag_len[0] = _config->_livecpk_enabled ? sizeof(lcpk_pattern_at_read_file)-1 : 0;
@@ -5148,6 +5157,7 @@ DWORD install_func(LPVOID thread_param) {
     frag_len[20] = _config->_lua_enabled ? sizeof(pattern_check_kit_choice)-1 : 0;
     frag_len[21] = _config->_lua_enabled ? sizeof(pattern_get_uniparam)-1 : 0;
     frag_len[22] = _config->_lua_enabled ? sizeof(pattern_data_ready)-1 : 0;
+    frag_len[23] = _config->_livecpk_enabled ? sizeof(lcpk_pattern2_at_read_file)-1 : 0;
 
     int offs[NUM_PATTERNS];
     offs[0] = lcpk_offs_at_read_file;
@@ -5173,6 +5183,7 @@ DWORD install_func(LPVOID thread_param) {
     offs[20] = offs_check_kit_choice;
     offs[21] = offs_get_uniparam;
     offs[22] = offs_data_ready;
+    offs[23] = lcpk_offs2_at_read_file;
 
     BYTE **addrs[NUM_PATTERNS];
     addrs[0] = &_config->_hp_at_read_file;
@@ -5198,6 +5209,7 @@ DWORD install_func(LPVOID thread_param) {
     addrs[20] = &_config->_hp_at_check_kit_choice;
     addrs[21] = &_config->_hp_at_get_uniparam;
     addrs[22] = &_config->_hp_at_data_ready;
+    addrs[23] = &_config->_hp_at_read_file;
 
     // check hook cache first
     for (int i=0;; i++) {
@@ -5343,9 +5355,17 @@ void _install_func(IMAGE_SECTION_HEADER *h, int npatt, BYTE **frag, size_t *frag
         if (!p) {
             continue;
         }
-        log_(L"Found pattern %i of %i\n", j+1, NUM_PATTERNS);
+        if (_variations[j]!=0xff) {
+            log_(L"Found pattern %i (%i) of %i\n", j+1, _variations[j]+1, NUM_PATTERNS);
+        }
+        else {
+            log_(L"Found pattern %i of %i\n", j+1, NUM_PATTERNS);
+        }
         *(addrs[j]) = p + offs[j];
         hcache.set(j,p);
+        if (_variations[j]!=0xff) {
+            hcache.set(_variations[j],0);
+        }
     }
 }
 

@@ -12,6 +12,25 @@ static BYTE lcpk_pattern_at_read_file[23] =
     "\xff\x15";
 static int lcpk_offs_at_read_file = 20;
 
+/**
+Same code, different instruction encoding:
+
+0000000143689ADC | 48 8B 0B                           | mov rcx,qword ptr ds:[rbx]             |
+0000000143689ADF | 48 83 64 24 20 00                  | and qword ptr ss:[rsp+20],0            |
+0000000143689AE5 | 4C 8D 4C 24 60                     | lea r9,qword ptr ss:[rsp+60]           |
+0000000143689AEA | 41 89 F8                           | mov r8d,edi                            |
+0000000143689AED | 48 89 F2                           | mov rdx,rsi                            |
+0000000143689AF0 | FF 15 A2 5B 3E 0E                  | call qword ptr ds:[<&ReadFile>]        |
+*/
+static BYTE lcpk_pattern2_at_read_file[23] =
+    "\x48\x8b\x0b"
+    "\x48\x83\x64\x24\x20\x00"
+    "\x4c\x8d\x4c\x24\x60"
+    "\x41\x89\xf8"
+    "\x48\x89\xf2"
+    "\xff\x15";
+static int lcpk_offs2_at_read_file = 20;
+
 static BYTE lcpk_pattern_at_get_size[25] =
     "\xeb\x05"
     "\xe8\x7b\xf3\xff\xff"

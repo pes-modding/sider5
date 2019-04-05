@@ -15,7 +15,7 @@ function m.data_ready(ctx, filename, addr, len)
 end
 
 function m.init(ctx)
-    ctx.register("livecpk_read", m.data_ready)
+    ctx.register("livecpk_data_ready", m.data_ready)
 end
 
 return m

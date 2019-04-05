@@ -10,17 +10,14 @@ local null_ptr = ffi.new("uint64_t")
 local dumproot = ".\\facedump\\"
 
 -- change this to whatever "real" faces you want to dump
-local face_ids = {
-    40571,  -- De Gea
-    45023,  -- Pogba
-    57123,  -- Salah
+local patterns = {
+    "Asset\\model\\character\\face\\real\\40571\\", -- De Gea
+    "common\\render\\symbol\\player\\40571%.dds",
+    "Asset\\model\\character\\face\\real\\45023\\", -- Pogba
+    "common\\render\\symbol\\player\\45023%.dds",
+    "Asset\\model\\character\\face\\real\\57123\\", -- Salah
+    "common\\render\\symbol\\player\\57123%.dds",
 }
-
-local patterns = {}
-for i,face_id in ipairs(face_ids) do
-    patterns[#patterns + 1] = string.format("Asset\\model\\character\\face\\real\\%d\\", face_id)
-    patterns[#patterns + 1] = string.format("common\\render\\symbol\\player\\%d%%.dds", face_id)
-end
 
 local function create_dirs_for(pathname)
     local path = ""

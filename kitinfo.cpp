@@ -172,7 +172,7 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst) {
     **/
     lua_getfield(L, index, "ChestNumberX");
     if (lua_isnumber(L, -1)) {
-        set_word_bits(dst+0x1a, luaL_checkinteger(L, -1), 4, 8);
+        set_word_bits(dst+0x1a, luaL_checkinteger(L, -1), 3, 8);
     }
     lua_pop(L, 1);
     lua_getfield(L, index, "ChestNumberY");
@@ -327,7 +327,7 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst) {
     **/
     lua_getfield(L, index, "RightShortX");
     if (lua_isstring(L, -1)) {
-        set_word_bits(dst+0x1e, luaL_checkinteger(L, -1), 12, 15);
+        set_word_bits(dst+0x1e, luaL_checkinteger(L, -1), 11, 15);
     }
     lua_pop(L, 1);
     lua_getfield(L, index, "RightShortY");
@@ -337,7 +337,9 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst) {
     lua_pop(L, 1);
     lua_getfield(L, index, "RightLongX");
     if (lua_isstring(L, -1)) {
-        set_word_bits(dst+0x22, luaL_checkinteger(L, -1), 0, 4);
+        int num = luaL_checkinteger(L, -1);
+        set_word_bits(dst+0x20, num, 15, 16);
+        set_word_bits(dst+0x22, num>>1, 0, 4);
     }
     lua_pop(L, 1);
     lua_getfield(L, index, "RightLongY");
@@ -347,7 +349,7 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst) {
     lua_pop(L, 1);
     lua_getfield(L, index, "LeftShortX");
     if (lua_isstring(L, -1)) {
-        set_word_bits(dst+0x1e, luaL_checkinteger(L, -1), 2, 6);
+        set_word_bits(dst+0x1e, luaL_checkinteger(L, -1), 1, 6);
     }
     lua_pop(L, 1);
     lua_getfield(L, index, "LeftShortY");
@@ -357,7 +359,7 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst) {
     lua_pop(L, 1);
     lua_getfield(L, index, "LeftLongX");
     if (lua_isstring(L, -1)) {
-        set_word_bits(dst+0x20, luaL_checkinteger(L, -1), 6, 10);
+        set_word_bits(dst+0x20, luaL_checkinteger(L, -1), 5, 10);
     }
     lua_pop(L, 1);
     lua_getfield(L, index, "LeftLongY");
@@ -431,7 +433,7 @@ void get_kit_info_to_lua_table(lua_State *L, int index, BYTE *src) {
     ChestNumberY=5       ; 0 to 7
     ChestNumberSize=14       ; 0 to 31
     **/
-    lua_pushinteger(L, get_word_bits(src+0x1a, 4, 8));
+    lua_pushinteger(L, get_word_bits(src+0x1a, 3, 8));
     lua_setfield(L, index, "ChestNumberX");
     lua_pushinteger(L, get_word_bits(src+0x1a, 0, 3));
     lua_setfield(L, index, "ChestNumberY");
@@ -507,19 +509,21 @@ void get_kit_info_to_lua_table(lua_State *L, int index, BYTE *src) {
     LeftLongX=14       ; 0 to 31
     LeftLongY=16       ; 0 to 31
     **/
-    lua_pushinteger(L, get_word_bits(src+0x1e, 12, 15));
+    lua_pushinteger(L, get_word_bits(src+0x1e, 11, 16));
     lua_setfield(L, index, "RightShortX");
     lua_pushinteger(L, get_word_bits(src+0x20, 0, 5));
     lua_setfield(L, index, "RightShortY");
-    lua_pushinteger(L, get_word_bits(src+0x22, 0, 4));
+    int num = get_word_bits(src+0x20, 15, 16);
+    num  +=  (get_word_bits(src+0x22, 0, 4) << 1);
+    lua_pushinteger(L, num);
     lua_setfield(L, index, "RightLongX");
     lua_pushinteger(L, get_word_bits(src+0x22, 4, 9));
     lua_setfield(L, index, "RightLongY");
-    lua_pushinteger(L, get_word_bits(src+0x1e, 2, 6));
+    lua_pushinteger(L, get_word_bits(src+0x1e, 1, 6));
     lua_setfield(L, index, "LeftShortX");
     lua_pushinteger(L, get_word_bits(src+0x1e, 6, 11));
     lua_setfield(L, index, "LeftShortY");
-    lua_pushinteger(L, get_word_bits(src+0x20, 6, 10));
+    lua_pushinteger(L, get_word_bits(src+0x20, 5, 10));
     lua_setfield(L, index, "LeftLongX");
     lua_pushinteger(L, get_word_bits(src+0x20, 10, 15));
     lua_setfield(L, index, "LeftLongY");

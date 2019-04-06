@@ -266,7 +266,10 @@ function m.key_down(ctx, vkey)
             local cfg = table_copy(curr[2])
             update_kit_config(ctx.home_team, home_next_kit, curr[1], cfg)
             -- trigger refresh
-            ctx.kits.refresh(0, cfg)
+            local kit_id = ctx.kits.get_current_kit_id(0)
+            kit_id = (kit_id == 0) and 1 or 0
+            ctx.kits.set(ctx.home_team, kit_id, cfg, 0)
+            ctx.kits.set_current_kit_id(0, kit_id)
         end
     elseif vkey == 0x37 then -- next away kit
         if not away_kits then
@@ -281,7 +284,10 @@ function m.key_down(ctx, vkey)
             local cfg = table_copy(curr[2])
             update_kit_config(ctx.away_team, away_next_kit, curr[1], cfg)
             -- trigger refresh
-            ctx.kits.refresh(1, cfg)
+            local kit_id = ctx.kits.get_current_kit_id(1)
+            kit_id = (kit_id == 0) and 1 or 0
+            ctx.kits.set(ctx.away_team, kit_id, cfg, 1)
+            ctx.kits.set_current_kit_id(1, kit_id)
         end
     end
 end

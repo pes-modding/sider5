@@ -4323,7 +4323,7 @@ static int get_team_id(MATCH_INFO_STRUCT *mi, int home_or_away)
     return decode_team_id(id_encoded);
 }
 
-static int sider_context_get_kit(lua_State *L)
+static int sider_context_get_current_kit_id(lua_State *L)
 {
     if (!_mi) {
         // no match_info_struct
@@ -4331,26 +4331,13 @@ static int sider_context_get_kit(lua_State *L)
         return 0;
     }
     int home_or_away = luaL_checkinteger(L, 1);
-
-    BYTE *kit = (BYTE*)_mi + 0x10a + home_or_away;
-
-    int team_id = get_team_id(_mi, home_or_away);
-    logu_("get_kit:: team_id=%d\n", team_id);
-    BYTE *src_data = find_kit_info(team_id, *kit);
-    if (!src_data) {
-        logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, *kit);
-        lua_pop(L, 1);
-        return 0;
-    }
-
     lua_pop(L, 1);
-
-    lua_newtable(L);
-    get_kit_info_to_lua_table(L, -1, src_data);
+    BYTE *kit = (BYTE*)_mi + 0x10a + home_or_away;
+    lua_pushinteger(L, *kit);
     return 1;
 }
 
-static int sider_context_refresh_kit(lua_State *L)
+static int sider_context_set_current_kit_id(lua_State *L)
 {
     if (!_mi) {
         // no match_info_struct
@@ -4358,39 +4345,69 @@ static int sider_context_refresh_kit(lua_State *L)
         return 0;
     }
     int home_or_away = luaL_checkinteger(L, 1);
+    int kit_id = luaL_checkinteger(L, 2);
+    lua_pop(L, 2);
+    BYTE *kit = (BYTE*)_mi + 0x10a + home_or_away;
+    *kit = kit_id;
+    return 0;
+}
+
+static int sider_context_get_kit(lua_State *L)
+{
+    if (!_mi) {
+        // no match_info_struct
+        lua_pop(L, 2);
+        return 0;
+    }
+    int team_id = luaL_checkinteger(L, 1);
+    int kit_id = luaL_checkinteger(L, 2);
+
+    logu_("get_kit:: team_id=%d, kit_id=%d\n", team_id, kit_id);
+    BYTE *src_data = find_kit_info(team_id, kit_id);
+    if (!src_data) {
+        logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, kit_id);
+        lua_pop(L, 2);
+        return 0;
+    }
+
+    lua_pop(L, 2);
+
+    lua_newtable(L);
+    get_kit_info_to_lua_table(L, -1, src_data);
+    return 1;
+}
+
+static int sider_context_set_kit(lua_State *L)
+{
+    if (!_mi) {
+        // no match_info_struct
+        lua_pop(L, lua_gettop(L));
+        return 0;
+    }
+    int team_id = luaL_checkinteger(L, 1);
+    int kit_id = luaL_checkinteger(L, 2);
 
     // force refresh of kit
-    if (lua_istable(L, 2)) {
-        BYTE *kit = (BYTE*)_mi + 0x10a + home_or_away;
-        BYTE new_kit = (*kit == 0) ? 1 : 0;
-
-        int team_id = get_team_id(_mi, home_or_away);
-        logu_("refresh_kit:: team_id=%d\n", team_id);
-        BYTE *src_data = find_kit_info(team_id, *kit);
-        if (!src_data) {
-            logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, *kit);
-            lua_pop(L, 2);
-            return 0;
-        }
-        BYTE *dst_data = find_kit_info(team_id, new_kit);
+    if (lua_istable(L, 3)) {
+        logu_("set_kit:: team_id=%d, kit_id=%d\n", team_id, kit_id);
+        BYTE *dst_data = find_kit_info(team_id, kit_id);
         if (!dst_data) {
-            logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, new_kit);
-            lua_pop(L, 2);
+            logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, kit_id);
+            lua_pop(L, lua_gettop(L));
             return 0;
         }
-
-        // copy kit info
-        memcpy(dst_data, src_data, 0x80);
 
         // apply changes
-        BYTE *radar_color = (new_kit == 0) ? _mi->home_shirt1_color1 : _mi->home_shirt2_color1;
-        radar_color += home_or_away * 0x5ec;
-        set_kit_info_from_lua_table(L, 2, dst_data, radar_color);
-
-        // switch
-        *kit = new_kit;
+        BYTE *radar_color = NULL;
+        if (lua_isnumber(L, 4)) {
+            // if we are to apply radar, then we need to know: home or away
+            int home_or_away = luaL_checkinteger(L,4);
+            radar_color = (kit_id == 0) ? _mi->home_shirt1_color1 : _mi->home_shirt2_color1;
+            radar_color += home_or_away * 0x5ec;
+        }
+        set_kit_info_from_lua_table(L, 3, dst_data, radar_color);
     }
-    lua_pop(L, 2);
+    lua_pop(L, lua_gettop(L));
     return 0;
 }
 
@@ -4586,10 +4603,14 @@ static void push_context_table(lua_State *L)
     lua_setfield(L, -2, "register");
 
     lua_newtable(L);
+    lua_pushcfunction(L, sider_context_get_current_kit_id);
+    lua_setfield(L, -2, "get_current_kit_id");
     lua_pushcfunction(L, sider_context_get_kit);
     lua_setfield(L, -2, "get");
-    lua_pushcfunction(L, sider_context_refresh_kit);
-    lua_setfield(L, -2, "refresh");
+    lua_pushcfunction(L, sider_context_set_current_kit_id);
+    lua_setfield(L, -2, "set_current_kit_id");
+    lua_pushcfunction(L, sider_context_set_kit);
+    lua_setfield(L, -2, "set");
     lua_setfield(L, -2, "kits");
 }
 

@@ -154,8 +154,27 @@ struct MATCH_INFO_STRUCT {
     DWORD unknown8;
     BYTE unknown9[0x98];
     DWORD home_team_encoded;
-    BYTE unknown10[0x5e8];
+    BYTE home_team_name[0x46];
+    BYTE home_team_abbr[4];
+    BYTE unknown10[2];
+    BYTE unknown11[0x53a];
+    BYTE home_shirt1_color1[3];
+    BYTE home_shirt1_color2[3];
+    BYTE unknown13[2];
+    BYTE home_shirt2_color1[3];
+    BYTE home_shirt2_color2[3];
+    BYTE unknown14[0x54];
     DWORD away_team_encoded;
+    BYTE away_team_name[0x46];
+    BYTE away_team_abbr[4];
+    BYTE unknown15[2];
+    BYTE unknown16[0x53a];
+    BYTE away_shirt1_color1[3];
+    BYTE away_shirt1_color2[3];
+    BYTE unknown18[2];
+    BYTE away_shirt2_color1[3];
+    BYTE away_shirt2_color2[3];
+    BYTE unknown19[0x54];
 };
 
 struct STAD_INFO_STRUCT {
@@ -2009,11 +2028,15 @@ bool module_set_kits(module_t *m, MATCH_INFO_STRUCT *mi)
         }
         if (lua_istable(L, -2)) {
             // home table
-            set_kit_info_from_lua_table(L, -2, home_ki);
+            BYTE home_kit = *((BYTE*)mi + 0x10a);
+            BYTE *radar_color = (home_kit == 0) ? _mi->home_shirt1_color1 : _mi->home_shirt2_color1;
+            set_kit_info_from_lua_table(L, -2, home_ki, radar_color);
         }
         if (lua_istable(L, -1)) {
             // away table
-            set_kit_info_from_lua_table(L, -1, away_ki);
+            BYTE away_kit = *((BYTE*)mi + 0x10b);
+            BYTE *radar_color = (away_kit == 0) ? _mi->away_shirt1_color1 : _mi->away_shirt2_color1;
+            set_kit_info_from_lua_table(L, -1, away_ki, radar_color);
         }
         lua_pop(L,2);
         LeaveCriticalSection(&_cs);
@@ -4312,7 +4335,7 @@ static int sider_context_get_kit(lua_State *L)
     BYTE *kit = (BYTE*)_mi + 0x10a + home_or_away;
 
     int team_id = get_team_id(_mi, home_or_away);
-    logu_("refresh_kit:: team_id=%d\n", team_id);
+    logu_("get_kit:: team_id=%d\n", team_id);
     BYTE *src_data = find_kit_info(team_id, *kit);
     if (!src_data) {
         logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, *kit);
@@ -4360,7 +4383,9 @@ static int sider_context_refresh_kit(lua_State *L)
         memcpy(dst_data, src_data, 0x80);
 
         // apply changes
-        set_kit_info_from_lua_table(L, 2, dst_data);
+        BYTE *radar_color = (new_kit == 0) ? _mi->home_shirt1_color1 : _mi->home_shirt2_color1;
+        radar_color += home_or_away * 0x5ec;
+        set_kit_info_from_lua_table(L, 2, dst_data, radar_color);
 
         // switch
         *kit = new_kit;

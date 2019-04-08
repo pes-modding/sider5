@@ -292,9 +292,8 @@ function m.set_kits(ctx, home_info, away_info)
             home_next_kit = kit_id+1
             update_kit_config(ctx.home_team, home_next_kit, kit_path, hi)
             log(string.format("home cfg returned (%s): %s", kit_path, t2s(hi)))
-        else
-            --ki[2] = ctx.kits.get(ctx.home_team, kit_id)
         end
+        p_home = get_curr_kit(ctx, ctx.home_team, 0)
     end
     local ai
     if away_kits and #away_kits > 0 then
@@ -307,16 +306,13 @@ function m.set_kits(ctx, home_info, away_info)
             away_next_kit = kit_id+1
             update_kit_config(ctx.away_team, away_next_kit, kit_path, ai)
             log(string.format("away cfg returned (%s): %s", kit_path, t2s(ai)))
-        else
-            --ki[2] = ctx.kits.get(ctx.away_team, kit_id)
         end
+        p_away = get_curr_kit(ctx, ctx.away_team, 1)
     end
-    p_home = get_curr_kit(ctx, ctx.home_team, 0)
-    p_away = get_curr_kit(ctx, ctx.away_team, 1)
 
     -- set gk kits, if we have them
     if home_gk_kits and #home_gk_kits>0 then
-        local kit_id = ctx.kits.get_current_kit_id(1)
+        local kit_id = ctx.kits.get_current_kit_id(0)
         local ki = home_gk_kits[kit_id+1]
         local cfg = ki and ki[2] or nil
         if cfg then
@@ -325,9 +321,8 @@ function m.set_kits(ctx, home_info, away_info)
             home_next_gk_kit = kit_id+1
             update_gk_kit_config(ctx.home_team, home_next_gk_kit, kit_path, cfg)
             ctx.kits.set_gk(ctx.home_team, cfg)
-        else
-            --ki[2] = ctx.kits.get_gk(ctx.home_team)
         end
+        g_home = get_curr_gk_kit(ctx, ctx.home_team)
     end
     if away_gk_kits and #away_gk_kits>0 then
         local kit_id = ctx.kits.get_current_kit_id(1)
@@ -339,12 +334,9 @@ function m.set_kits(ctx, home_info, away_info)
             away_next_gk_kit = kit_id+1
             update_gk_kit_config(ctx.away_team, away_next_gk_kit, kit_path, cfg)
             ctx.kits.set_gk(ctx.away_team, cfg)
-        else
-            --ki[2] = ctx.kits.get_gk(ctx.away_team)
         end
+        g_away = get_curr_gk_kit(ctx, ctx.away_team)
     end
-    g_home = get_curr_gk_kit(ctx, ctx.home_team)
-    g_away = get_curr_gk_kit(ctx, ctx.away_team)
     --dump_kit_config(string.format("%s%d-%s-gk-config.txt", ctx.sider_dir, ctx.home_team, 0), g_home[2])
     --dump_kit_config(string.format("%s%d-%s-gk-config.txt", ctx.sider_dir, ctx.away_team, 0), g_away[2])
     return hi, ai
@@ -378,18 +370,14 @@ function m.key_down(ctx, vkey)
         log("Reloaded map from: " .. kroot .. "\\map.txt")
 
     elseif vkey == 0x39 then -- player/goalkeeper mode toggle
-        -- 1. remember current kits
-        p_home = home_kits and home_kits[home_next_kit] or get_curr_kit(ctx, ctx.home_team, 0)
-        p_away = away_kits and away_kits[away_next_kit] or get_curr_kit(ctx, ctx.away_team, 1)
-        g_home = home_kits and home_gk_kits[home_next_gk_kit] or get_curr_gk_kit(ctx, ctx.home_team)
-        g_away = away_kits and away_gk_kits[away_next_gk_kit] or get_curr_gk_kit(ctx, ctx.away_team)
-
-        -- 2. see if switch can be made
         if is_gk_mode then
             -- try to switch to players mode
+            g_home = home_kits and home_gk_kits[home_next_gk_kit]
+            g_away = away_kits and away_gk_kits[away_next_gk_kit]
+
             -- home: update cfg
             local curr = p_home
-            if curr[2] then
+            if curr and curr[2] then
                 local cfg = table_copy(curr[2])
                 update_kit_config(ctx.home_team, home_next_kit, curr[1], cfg)
                 -- trigger refresh
@@ -400,7 +388,7 @@ function m.key_down(ctx, vkey)
             end
             -- away: update cfg
             local curr = p_away
-            if curr[2] then
+            if curr and curr[2] then
                 local cfg = table_copy(curr[2])
                 update_kit_config(ctx.away_team, away_next_kit, curr[1], cfg)
                 -- trigger refresh
@@ -411,9 +399,12 @@ function m.key_down(ctx, vkey)
             end
         else
             -- try to switch to goalkeepers mode
+            p_home = home_kits and home_kits[home_next_kit]
+            p_away = away_kits and away_kits[away_next_kit]
+
             -- home: update cfg
             local curr = g_home
-            if curr[2] then
+            if curr and curr[2] then
                 -- we have a home GK kit
                 local cfg = table_copy(curr[2])
                 update_gk_kit_config(ctx.home_team, home_next_gk_kit, curr[1], cfg)
@@ -427,7 +418,7 @@ function m.key_down(ctx, vkey)
             end
             -- away: update cfg
             local curr = g_away
-            if curr[2] then
+            if curr and curr[2] then
                 -- we have an away GK kit
                 local cfg = table_copy(curr[2])
                 update_gk_kit_config(ctx.away_team, away_next_gk_kit, curr[1], cfg)

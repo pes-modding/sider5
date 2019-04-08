@@ -596,15 +596,16 @@ static BYTE* get_uniparam()
     return NULL;
 }
 
-static BYTE* find_kit_info(int team_id, int which_kit)
-{
-    char *suffix_map[] = {
-        "1st",  "2nd", "3rd", "4th", "5th",
-        "6th",  "7th", "8th", "9th", "10th",
-    };
-    if (which_kit < 0) { which_kit = 0; }
-    if (which_kit > 9) { which_kit = 9; }
+static char *suffix_map[] = {
+    "1st",  "2nd", "3rd", "4th", "5th",
+    "6th",  "7th", "8th", "9th", "10th",
+};
+static char *gk_suffix_map[] = {
+    "GK1st",
+};
 
+static BYTE* find_kit_info(int team_id, char *suffix)
+{
     BYTE *uniparam = get_uniparam();
     if (uniparam) {
         DWORD numItems = *(DWORD*)(uniparam);
@@ -625,7 +626,6 @@ static BYTE* find_kit_info(int team_id, int which_kit)
                 int id = 0;
                 if (sscanf(kit_config_name,"%d",&id)==1) {
                     if (team_id == id) {
-                        char *suffix = suffix_map[which_kit];
                         if (memcmp(second_underscore+1, suffix, strlen(suffix))==0) {
                             BYTE *p = uniparam + cf_starting_offs;
                             if (*p == 1) {
@@ -2005,16 +2005,18 @@ bool module_set_kits(module_t *m, MATCH_INFO_STRUCT *mi)
         // push params
         lua_pushvalue(L, 1); // ctx
 
+        int home_kit_id = (int)*((BYTE*)mi + 0x10a);
+        if (home_kit_id > 9) { home_kit_id = 9; }
+        if (home_kit_id < 0) { home_kit_id = 0; }
         lua_newtable(L); // home team info
-        lua_pushinteger(L, *((BYTE*)mi + 0x10a));
-        lua_setfield(L, -2, "kit_id");
-        home_ki = find_kit_info(get_team_id(mi, 0), *((BYTE*)mi + 0x10a));
+        home_ki = find_kit_info(get_team_id(mi, 0), suffix_map[home_kit_id]);
         get_kit_info_to_lua_table(L, -1, home_ki);
 
+        int away_kit_id = (int)*((BYTE*)mi + 0x10b);
+        if (away_kit_id > 9) { away_kit_id = 9; }
+        if (away_kit_id < 0) { away_kit_id = 0; }
         lua_newtable(L); // away team info
-        lua_pushinteger(L, *((BYTE*)mi + 0x10b));
-        lua_setfield(L, -2, "kit_id");
-        away_ki = find_kit_info(get_team_id(mi, 1), *((BYTE*)mi + 0x10b));
+        away_ki = find_kit_info(get_team_id(mi, 1), suffix_map[away_kit_id]);
         get_kit_info_to_lua_table(L, -1, away_ki);
 
         logu_("uniparam: %p\n", get_uniparam());
@@ -2028,14 +2030,12 @@ bool module_set_kits(module_t *m, MATCH_INFO_STRUCT *mi)
         }
         if (lua_istable(L, -2)) {
             // home table
-            BYTE home_kit = *((BYTE*)mi + 0x10a);
-            BYTE *radar_color = (home_kit == 0) ? _mi->home_shirt1_color1 : _mi->home_shirt2_color1;
+            BYTE *radar_color = (home_kit_id == 0) ? _mi->home_shirt1_color1 : _mi->home_shirt2_color1;
             set_kit_info_from_lua_table(L, -2, home_ki, radar_color);
         }
         if (lua_istable(L, -1)) {
             // away table
-            BYTE away_kit = *((BYTE*)mi + 0x10b);
-            BYTE *radar_color = (away_kit == 0) ? _mi->away_shirt1_color1 : _mi->away_shirt2_color1;
+            BYTE *radar_color = (away_kit_id == 0) ? _mi->away_shirt1_color1 : _mi->away_shirt2_color1;
             set_kit_info_from_lua_table(L, -1, away_ki, radar_color);
         }
         lua_pop(L,2);
@@ -4361,9 +4361,11 @@ static int sider_context_get_kit(lua_State *L)
     }
     int team_id = luaL_checkinteger(L, 1);
     int kit_id = luaL_checkinteger(L, 2);
+    if (kit_id > 9) { kit_id = 9; }
+    if (kit_id < 0) { kit_id = 0; }
 
     logu_("get_kit:: team_id=%d, kit_id=%d\n", team_id, kit_id);
-    BYTE *src_data = find_kit_info(team_id, kit_id);
+    BYTE *src_data = find_kit_info(team_id, suffix_map[kit_id]);
     if (!src_data) {
         logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, kit_id);
         lua_pop(L, 2);
@@ -4371,6 +4373,30 @@ static int sider_context_get_kit(lua_State *L)
     }
 
     lua_pop(L, 2);
+
+    lua_newtable(L);
+    get_kit_info_to_lua_table(L, -1, src_data);
+    return 1;
+}
+
+static int sider_context_get_gk_kit(lua_State *L)
+{
+    if (!_mi) {
+        // no match_info_struct
+        lua_pop(L, 1);
+        return 0;
+    }
+    int team_id = luaL_checkinteger(L, 1);
+
+    logu_("get_gk_kit:: team_id=%d\n", team_id);
+    BYTE *src_data = find_kit_info(team_id, gk_suffix_map[0]);
+    if (!src_data) {
+        logu_("problem: cannot find GK kit info for team %d\n", team_id);
+        lua_pop(L, 1);
+        return 0;
+    }
+
+    lua_pop(L, 1);
 
     lua_newtable(L);
     get_kit_info_to_lua_table(L, -1, src_data);
@@ -4386,11 +4412,13 @@ static int sider_context_set_kit(lua_State *L)
     }
     int team_id = luaL_checkinteger(L, 1);
     int kit_id = luaL_checkinteger(L, 2);
+    if (kit_id > 9) { kit_id = 9; }
+    if (kit_id < 0) { kit_id = 0; }
 
     // force refresh of kit
     if (lua_istable(L, 3)) {
         logu_("set_kit:: team_id=%d, kit_id=%d\n", team_id, kit_id);
-        BYTE *dst_data = find_kit_info(team_id, kit_id);
+        BYTE *dst_data = find_kit_info(team_id, suffix_map[kit_id]);
         if (!dst_data) {
             logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, kit_id);
             lua_pop(L, lua_gettop(L));
@@ -4401,11 +4429,44 @@ static int sider_context_set_kit(lua_State *L)
         BYTE *radar_color = NULL;
         if (lua_isnumber(L, 4)) {
             // if we are to apply radar, then we need to know: home or away
-            int home_or_away = luaL_checkinteger(L,4);
+            int home_or_away = luaL_checkinteger(L, 4);
             radar_color = (kit_id == 0) ? _mi->home_shirt1_color1 : _mi->home_shirt2_color1;
             radar_color += home_or_away * 0x5ec;
         }
         set_kit_info_from_lua_table(L, 3, dst_data, radar_color);
+    }
+    lua_pop(L, lua_gettop(L));
+    return 0;
+}
+
+static int sider_context_set_gk_kit(lua_State *L)
+{
+    if (!_mi) {
+        // no match_info_struct
+        lua_pop(L, lua_gettop(L));
+        return 0;
+    }
+    int team_id = luaL_checkinteger(L, 1);
+
+    // force refresh of kit
+    if (lua_istable(L, 2)) {
+        logu_("set_gk_kit:: team_id=%d\n", team_id);
+        BYTE *dst_data = find_kit_info(team_id, gk_suffix_map[0]);
+        if (!dst_data) {
+            logu_("problem: cannot find GK kit info for team %d\n", team_id);
+            lua_pop(L, lua_gettop(L));
+            return 0;
+        }
+
+        // apply changes
+        BYTE *radar_color = NULL;
+        if (lua_isnumber(L, 3)) {
+            // if we are to apply radar, then we need to know: home or away
+            int home_or_away = luaL_checkinteger(L, 3);
+            radar_color = _mi->home_shirt1_color1;
+            radar_color += home_or_away * 0x5ec;
+        }
+        set_kit_info_from_lua_table(L, 2, dst_data, radar_color);
     }
     lua_pop(L, lua_gettop(L));
     return 0;
@@ -4607,10 +4668,14 @@ static void push_context_table(lua_State *L)
     lua_setfield(L, -2, "get_current_kit_id");
     lua_pushcfunction(L, sider_context_get_kit);
     lua_setfield(L, -2, "get");
+    lua_pushcfunction(L, sider_context_get_gk_kit);
+    lua_setfield(L, -2, "get_gk");
     lua_pushcfunction(L, sider_context_set_current_kit_id);
     lua_setfield(L, -2, "set_current_kit_id");
     lua_pushcfunction(L, sider_context_set_kit);
     lua_setfield(L, -2, "set");
+    lua_pushcfunction(L, sider_context_set_gk_kit);
+    lua_setfield(L, -2, "set_gk");
     lua_setfield(L, -2, "kits");
 }
 

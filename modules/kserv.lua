@@ -3,7 +3,7 @@
 
 local m = {}
 
-m.version = "1.3"
+m.version = "1.4"
 
 local kroot = ".\\content\\kit-server\\"
 local kmap
@@ -381,9 +381,9 @@ function m.key_down(ctx, vkey)
                 local cfg = table_copy(curr[2])
                 update_kit_config(ctx.home_team, home_next_kit, curr[1], cfg)
                 -- trigger refresh
-                local home_kit_id = (ctx.kits.get_current_kit_id(0) == 0) and 1 or 0
+                local home_kit_id = ctx.kits.get_current_kit_id(0)
                 ctx.kits.set(ctx.home_team, home_kit_id, cfg, 0)
-                ctx.kits.set_current_kit_id(0, home_kit_id)
+                ctx.kits.refresh(0)
                 is_gk_mode = false
             end
             -- away: update cfg
@@ -392,9 +392,9 @@ function m.key_down(ctx, vkey)
                 local cfg = table_copy(curr[2])
                 update_kit_config(ctx.away_team, away_next_kit, curr[1], cfg)
                 -- trigger refresh
-                local away_kit_id = (ctx.kits.get_current_kit_id(1) == 0) and 1 or 0
+                local away_kit_id = ctx.kits.get_current_kit_id(1)
                 ctx.kits.set(ctx.away_team, away_kit_id, cfg, 1)
-                ctx.kits.set_current_kit_id(1, away_kit_id)
+                ctx.kits.refresh(1)
                 is_gk_mode = false
             end
         else
@@ -411,9 +411,9 @@ function m.key_down(ctx, vkey)
                 -- update kit
                 ctx.kits.set_gk(ctx.home_team, cfg)
                 -- trigger refresh
-                local home_kit_id = (ctx.kits.get_current_kit_id(0) == 0) and 1 or 0
-                ctx.kits.set(ctx.home_team, home_kit_id, cfg, 0)
-                ctx.kits.set_current_kit_id(0, home_kit_id)
+                local home_kit_id = ctx.kits.get_current_kit_id(0)
+                ctx.kits.set(ctx.home_team, home_kit_id, cfg)
+                ctx.kits.refresh(0)
                 is_gk_mode = true
             end
             -- away: update cfg
@@ -425,9 +425,9 @@ function m.key_down(ctx, vkey)
                 -- update kit
                 ctx.kits.set_gk(ctx.away_team, cfg)
                 -- trigger refresh
-                local away_kit_id = (ctx.kits.get_current_kit_id(1) == 0) and 1 or 0
-                ctx.kits.set(ctx.away_team, away_kit_id, cfg, 1)
-                ctx.kits.set_current_kit_id(1, away_kit_id)
+                local away_kit_id = ctx.kits.get_current_kit_id(1)
+                ctx.kits.set(ctx.away_team, away_kit_id, cfg)
+                ctx.kits.refresh(1)
                 is_gk_mode = true
             end
         end
@@ -448,9 +448,8 @@ function m.key_down(ctx, vkey)
                 update_kit_config(ctx.home_team, home_next_kit, curr[1], cfg)
                 -- trigger refresh
                 local kit_id = ctx.kits.get_current_kit_id(0)
-                kit_id = (kit_id == 0) and 1 or 0
                 ctx.kits.set(ctx.home_team, kit_id, cfg, 0)
-                ctx.kits.set_current_kit_id(0, kit_id)
+                ctx.kits.refresh(0)
                 p_home = curr
             end
         else
@@ -465,9 +464,8 @@ function m.key_down(ctx, vkey)
                 update_gk_kit_config(ctx.home_team, home_next_gk_kit, curr[1], cfg)
                 -- trigger refresh
                 local kit_id = ctx.kits.get_current_kit_id(0)
-                kit_id = (kit_id == 0) and 1 or 0
-                ctx.kits.set(ctx.home_team, kit_id, cfg, 0)
-                ctx.kits.set_current_kit_id(0, kit_id)
+                ctx.kits.set(ctx.home_team, kit_id, cfg)
+                ctx.kits.refresh(0)
                 g_home = curr
             end
         end
@@ -487,9 +485,8 @@ function m.key_down(ctx, vkey)
                 update_kit_config(ctx.away_team, away_next_kit, curr[1], cfg)
                 -- trigger refresh
                 local kit_id = ctx.kits.get_current_kit_id(1)
-                kit_id = (kit_id == 0) and 1 or 0
                 ctx.kits.set(ctx.away_team, kit_id, cfg, 1)
-                ctx.kits.set_current_kit_id(1, kit_id)
+                ctx.kits.refresh(1)
                 p_away = curr
             end
         else
@@ -504,9 +501,8 @@ function m.key_down(ctx, vkey)
                 update_gk_kit_config(ctx.away_team, away_next_gk_kit, curr[1], cfg)
                 -- trigger refresh
                 local kit_id = ctx.kits.get_current_kit_id(1)
-                kit_id = (kit_id == 0) and 1 or 0
-                ctx.kits.set(ctx.away_team, kit_id, cfg, 1)
-                ctx.kits.set_current_kit_id(1, kit_id)
+                ctx.kits.set(ctx.away_team, kit_id, cfg)
+                ctx.kits.refresh(1)
                 g_away = curr
             end
         end
@@ -526,11 +522,10 @@ function m.finalize_kits(ctx)
         local curr = p_home
         if curr then
             local kit_id = ctx.kits.get_current_kit_id(0)
-            kit_id = (kit_id == 0) and 1 or 0
             local cfg = table_copy(curr[2])
             update_kit_config(ctx.home_team, home_next_kit, curr[1], cfg)
             ctx.kits.set(ctx.home_team, kit_id, cfg, 0)
-            ctx.kits.set_current_kit_id(0, kit_id)
+            ctx.kits.refresh(0)
         end
     end
     if away_kits and #away_kits > 0 then
@@ -543,11 +538,10 @@ function m.finalize_kits(ctx)
         local curr = p_away
         if curr then
             local kit_id = ctx.kits.get_current_kit_id(1)
-            kit_id = (kit_id == 0) and 1 or 0
             local cfg = table_copy(curr[2])
             update_kit_config(ctx.away_team, away_next_kit, curr[1], cfg)
             ctx.kits.set(ctx.away_team, kit_id, cfg, 1)
-            ctx.kits.set_current_kit_id(1, kit_id)
+            ctx.kits.refresh(1)
         end
     end
 end

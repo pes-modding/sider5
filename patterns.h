@@ -419,4 +419,15 @@ static BYTE pattern_data_ready[17] =
     "\x75\x08";
 static int offs_data_ready = 0xa0-0x77;
 
+/*
+00000001505F09CC | 44 0F B6 4B 4E                     | movzx r9d,byte ptr ds:[rbx+4E]       |
+00000001505F09D1 | 44 0F B6 43 4D                     | movzx r8d,byte ptr ds:[rbx+4D]       |
+00000001505F09D6 | 0F B6 53 4C                        | movzx edx,byte ptr ds:[rbx+4C]       |
+*/
+static BYTE pattern_kit_status[15] =
+    "\x44\x0f\xb6\x4b\x4e"
+    "\x44\x0f\xb6\x43\x4d"
+    "\x0f\xb6\x53\x4c";
+static int offs_kit_status = 0;
+
 #endif

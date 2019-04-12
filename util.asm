@@ -22,6 +22,7 @@ extern sider_def_stadium_name:proc
 extern sider_set_stadium_choice:proc
 extern sider_check_kit_choice:proc
 extern sider_data_ready:proc
+extern sider_kit_status:proc
 
 .code
 sider_read_file_hk proc
@@ -398,5 +399,31 @@ sider_data_ready_hk proc
         ret
 
 sider_data_ready_hk endp
+
+;00000001505F09CC | 44 0F B6 4B 4E                     | movzx r9d,byte ptr ds:[rbx+4E]       |
+;00000001505F09D1 | 44 0F B6 43 4D                     | movzx r8d,byte ptr ds:[rbx+4D]       |
+;00000001505F09D6 | 0F B6 53 4C                        | movzx edx,byte ptr ds:[rbx+4C]       |
+
+sider_kit_status_hk proc
+
+        push    rcx
+        push    r10
+        push    r11
+        push    rax
+        sub     rsp,28h
+        mov     rcx,rbx
+        mov     rdx,rax
+        call    sider_kit_status
+        movzx   r9d, byte ptr [rbx+4eh]
+        movzx   r8d, byte ptr [rbx+4dh]
+        movzx   rdx, byte ptr [rbx+4ch]
+        add     rsp,28h
+        pop     rax
+        pop     r11
+        pop     r10
+        pop     rcx
+        ret
+
+sider_kit_status_hk endp
 
 end

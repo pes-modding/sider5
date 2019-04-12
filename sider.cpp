@@ -204,6 +204,7 @@ int _stadium_choice_count = 0;
 struct STAD_INFO_STRUCT _stadium_info;
 MATCH_INFO_STRUCT *_mi = NULL;
 void *_uniparam_base = NULL;
+KIT_STATUS_INFO *_ksi = NULL;
 
 // home team encoded-id offset: 0x104
 // home team name offset:       0x108
@@ -525,6 +526,10 @@ extern "C" void sider_check_kit_choice_hk();
 extern "C" DWORD sider_data_ready(FILE_LOAD_INFO *fli);
 
 extern "C" void sider_data_ready_hk();
+
+extern "C" void sider_kit_status(KIT_STATUS_INFO *ksi, TASK_UNIFORM_IMPL *tu_impl);
+
+extern "C" void sider_kit_status_hk();
 
 static DWORD dwThreadId;
 static DWORD hookingThreadId = 0;
@@ -960,6 +965,7 @@ public:
     BYTE *_hp_at_check_kit_choice;
     BYTE *_hp_at_get_uniparam;
     BYTE *_hp_at_data_ready;
+    BYTE *_hp_at_kit_status;
 
     BYTE *_hp_at_set_min_time;
     BYTE *_hp_at_set_max_time;
@@ -1014,6 +1020,7 @@ public:
                  _hp_at_check_kit_choice(NULL),
                  _hp_at_get_uniparam(NULL),
                  _hp_at_data_ready(NULL),
+                 _hp_at_kit_status(NULL),
                  _hp_at_set_min_time(NULL),
                  _hp_at_set_max_time(NULL),
                  _hp_at_set_minutes(NULL),
@@ -1399,6 +1406,7 @@ struct module_t {
     */
     int evt_overlay_on;
     int evt_key_down;
+    int evt_key_up;
     int evt_gamepad_input;
 };
 list<module_t*> _modules;
@@ -2189,6 +2197,24 @@ void module_key_down(module_t *m, int vkey)
     if (m->evt_key_down != 0) {
         EnterCriticalSection(&_cs);
         lua_pushvalue(m->L, m->evt_key_down);
+        lua_xmove(m->L, L, 1);
+        // push params
+        lua_pushvalue(L, 1); // ctx
+        lua_pushinteger(L, vkey); // ctx
+        if (lua_pcall(L, 2, 0, 0) != LUA_OK) {
+            const char *err = luaL_checkstring(L, -1);
+            logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+            lua_pop(L, 1);
+        }
+        LeaveCriticalSection(&_cs);
+    }
+}
+
+void module_key_up(module_t *m, int vkey)
+{
+    if (m->evt_key_up != 0) {
+        EnterCriticalSection(&_cs);
+        lua_pushvalue(m->L, m->evt_key_up);
         lua_xmove(m->L, L, 1);
         // push params
         lua_pushvalue(L, 1); // ctx
@@ -4120,6 +4146,23 @@ DWORD sider_data_ready(FILE_LOAD_INFO *fli)
     return 0;
 }
 
+void sider_kit_status(KIT_STATUS_INFO *ksi, TASK_UNIFORM_IMPL *tu_impl)
+{
+    _ksi = ksi;
+    logu_("sider_kit_status: ksi=%p, tu_impl=%p\n", ksi, tu_impl);
+    if (ksi) {
+        logu_("sider_kit_status: ksi->home=%d, ksi->away=%d\n",
+            decode_team_id(_ksi->home_team_id_encoded),
+            decode_team_id(_ksi->away_team_id_encoded)
+        );
+        logu_("sider_kit_status: tu_impl->home=%d, tu_impl->away=%d\n",
+            decode_team_id(tu_impl->home_team_id_encoded),
+            decode_team_id(tu_impl->away_team_id_encoded)
+        );
+        logu_("sider_kit_status: is_edit_mode=%d\n", ksi->is_edit_mode);
+    }
+}
+
 void sider_check_kit_choice(MATCH_INFO_STRUCT *mi, DWORD home_or_away)
 {
     logu_("check_kit_choice: mi=%p, home_or_away=%d\n", mi, home_or_away);
@@ -4323,18 +4366,52 @@ static int get_team_id(MATCH_INFO_STRUCT *mi, int home_or_away)
     return decode_team_id(id_encoded);
 }
 
-static int sider_context_get_current_kit_id(lua_State *L)
+static int sider_context_get_current_team_id(lua_State *L)
 {
-    if (!_mi) {
-        // no match_info_struct
+    if (!_ksi) {
+        // no KIT_STATUS_INFO struct
         lua_pop(L, 1);
         return 0;
     }
     int home_or_away = luaL_checkinteger(L, 1);
     lua_pop(L, 1);
-    BYTE *kit = (BYTE*)_mi + 0x10a + home_or_away;
-    lua_pushinteger(L, *kit);
-    return 1;
+    DWORD team_id;
+    switch (home_or_away) {
+        case 0:
+            team_id = decode_team_id(_ksi->home_team_id_encoded);
+            lua_pushinteger(L, team_id);
+            return 1;
+        case 1:
+            team_id = decode_team_id(_ksi->away_team_id_encoded);
+            lua_pushinteger(L, team_id);
+            return 1;
+    }
+    return 0;
+}
+
+static int sider_context_get_current_kit_id(lua_State *L)
+{
+    int home_or_away = luaL_checkinteger(L, 1);
+    if (_mi) {
+        lua_pop(L, 1);
+        BYTE *kit = (BYTE*)_mi + 0x10a + home_or_away;
+        lua_pushinteger(L, *kit);
+        return 1;
+    }
+    else if (_ksi && _ksi->task_uniform_impl) {
+        if (home_or_away == 0 && _ksi->task_uniform_impl->home_team_id_encoded != 0xffffffff) {
+            lua_pop(L, 1);
+            lua_pushinteger(L, _ksi->task_uniform_impl->home_player_kit_id);
+            return 1;
+        }
+        if (home_or_away == 1 && _ksi->task_uniform_impl->away_team_id_encoded != 0xffffffff) {
+            lua_pop(L, 1);
+            lua_pushinteger(L, _ksi->task_uniform_impl->away_player_kit_id);
+            return 1;
+        }
+    }
+    lua_pop(L, 1);
+    return 0;
 }
 
 static int sider_context_set_current_kit_id(lua_State *L)
@@ -4405,11 +4482,6 @@ static int sider_context_get_gk_kit(lua_State *L)
 
 static int sider_context_set_kit(lua_State *L)
 {
-    if (!_mi) {
-        // no match_info_struct
-        lua_pop(L, lua_gettop(L));
-        return 0;
-    }
     int team_id = luaL_checkinteger(L, 1);
     int kit_id = luaL_checkinteger(L, 2);
     if (kit_id > 9) { kit_id = 9; }
@@ -4429,9 +4501,14 @@ static int sider_context_set_kit(lua_State *L)
         BYTE *radar_color = NULL;
         if (lua_isnumber(L, 4)) {
             // if we are to apply radar, then we need to know: home or away
-            int home_or_away = luaL_checkinteger(L, 4);
-            radar_color = (kit_id == 0) ? _mi->home_shirt1_color1 : _mi->home_shirt2_color1;
-            radar_color += home_or_away * 0x5ec;
+            if (_mi) {
+                int home_or_away = luaL_checkinteger(L, 4);
+                radar_color = (kit_id == 0) ? _mi->home_shirt1_color1 : _mi->home_shirt2_color1;
+                radar_color += home_or_away * 0x5ec;
+            }
+            else {
+                logu_("warning: unable to set radar color - no MATCH_INFO_STRUCT pointer\n");
+            }
         }
         set_kit_info_from_lua_table(L, 3, dst_data, radar_color);
     }
@@ -4468,6 +4545,65 @@ static int sider_context_set_gk_kit(lua_State *L)
         }
         set_kit_info_from_lua_table(L, 2, dst_data, radar_color);
     }
+    lua_pop(L, lua_gettop(L));
+    return 0;
+}
+
+static int sider_context_refresh_kit(lua_State *L)
+{
+    logu_("refresh_kit:: ~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
+    if (!_ksi || !_ksi->task_uniform_impl) {
+        // no TASK_UNIFORM_IMPL object
+        logu_("refresh_kit:: no ksi or no TaskUniformImpl\n");
+        lua_pop(L, lua_gettop(L));
+        return 0;
+    }
+    int home_or_away = luaL_checkinteger(L, 1);
+
+    // more safety checks
+    logu_("refresh_kit:: tu_impl=%p\n", _ksi->task_uniform_impl);
+    if (home_or_away == 0 && _ksi->home_team_id_encoded == 0xffffffff) {
+        logu_("refresh_kit:: no home team\n");
+        lua_pop(L, lua_gettop(L));
+        return 0;
+    }
+    if (home_or_away == 1 && _ksi->away_team_id_encoded == 0xffffffff) {
+        logu_("refresh_kit:: no away team\n");
+        lua_pop(L, lua_gettop(L));
+        return 0;
+    }
+
+    KIT_INTERMED_STRUCT *kis = (home_or_away == 0) ?
+        _ksi->task_uniform_impl->home : _ksi->task_uniform_impl->away;
+
+    if (!kis || !kis->kit_helper) {
+        // no intermed or kit-helper pointer
+        logu_("refresh_kit:: no kis or no kis->kit_helper\n");
+        lua_pop(L, lua_gettop(L));
+        return 0;
+    }
+    logu_("refresh_kit:: kis=%p\n", kis);
+    logu_("refresh_kit:: kis->kit_helper=%p\n", kis->kit_helper);
+
+    // flip change flag
+    logu_("refresh_kit:: kis->kit_helper->change_flag was: %d\n", kis->kit_helper->change_flag);
+    kis->kit_helper->change_flag = (kis->kit_helper->change_flag == 0) ? 1 : 0;
+
+    logu_("refresh_kit: home=%d (kit:%d), away=%d (kit:%d)\n",
+        decode_team_id(_ksi->task_uniform_impl->home_team_id_encoded),
+        _ksi->task_uniform_impl->home_player_kit_id,
+        decode_team_id(_ksi->task_uniform_impl->away_team_id_encoded),
+        _ksi->task_uniform_impl->away_player_kit_id
+    );
+
+    // flip TaskIniformImpl change flag
+    if (home_or_away == 0) {
+        _ksi->task_uniform_impl->home_change_flag1 = 1;
+    }
+    else {
+        _ksi->task_uniform_impl->away_change_flag1 = 1;
+    }
+
     lua_pop(L, lua_gettop(L));
     return 0;
 }
@@ -4604,6 +4740,12 @@ static int sider_context_register(lua_State *L)
         _curr_m->evt_key_down = lua_gettop(_curr_m->L);
         logu_("Registered for \"%s\" event\n", event_key);
     }
+    else if (strcmp(event_key, "key_up")==0) {
+        lua_pushvalue(L, -1);
+        lua_xmove(L, _curr_m->L, 1);
+        _curr_m->evt_key_up = lua_gettop(_curr_m->L);
+        logu_("Registered for \"%s\" event\n", event_key);
+    }
     else if (strcmp(event_key, "gamepad_input")==0) {
         lua_pushvalue(L, -1);
         lua_xmove(L, _curr_m->L, 1);
@@ -4664,6 +4806,8 @@ static void push_context_table(lua_State *L)
     lua_setfield(L, -2, "register");
 
     lua_newtable(L);
+    lua_pushcfunction(L, sider_context_get_current_team_id);
+    lua_setfield(L, -2, "get_current_team");
     lua_pushcfunction(L, sider_context_get_current_kit_id);
     lua_setfield(L, -2, "get_current_kit_id");
     lua_pushcfunction(L, sider_context_get_kit);
@@ -4676,6 +4820,8 @@ static void push_context_table(lua_State *L)
     lua_setfield(L, -2, "set");
     lua_pushcfunction(L, sider_context_set_gk_kit);
     lua_setfield(L, -2, "set_gk");
+    lua_pushcfunction(L, sider_context_refresh_kit);
+    lua_setfield(L, -2, "refresh");
     lua_setfield(L, -2, "kits");
 }
 
@@ -5211,7 +5357,7 @@ DWORD install_func(LPVOID thread_param) {
     hook_cache_t hcache(cache_file);
 
     // prepare patterns
-#define NUM_PATTERNS 24
+#define NUM_PATTERNS 25
     BYTE *frag[NUM_PATTERNS];
     frag[0] = lcpk_pattern_at_read_file;
     frag[1] = lcpk_pattern_at_get_size;
@@ -5237,6 +5383,7 @@ DWORD install_func(LPVOID thread_param) {
     frag[21] = pattern_get_uniparam;
     frag[22] = pattern_data_ready;
     frag[23] = lcpk_pattern2_at_read_file;
+    frag[24] = pattern_kit_status;
 
     memset(_variations, 0xff, sizeof(_variations));
     _variations[0] = 23;
@@ -5269,6 +5416,7 @@ DWORD install_func(LPVOID thread_param) {
     frag_len[21] = _config->_lua_enabled ? sizeof(pattern_get_uniparam)-1 : 0;
     frag_len[22] = _config->_lua_enabled ? sizeof(pattern_data_ready)-1 : 0;
     frag_len[23] = _config->_livecpk_enabled ? sizeof(lcpk_pattern2_at_read_file)-1 : 0;
+    frag_len[24] = _config->_lua_enabled ? sizeof(pattern_kit_status)-1 : 0;
 
     int offs[NUM_PATTERNS];
     offs[0] = lcpk_offs_at_read_file;
@@ -5295,6 +5443,7 @@ DWORD install_func(LPVOID thread_param) {
     offs[21] = offs_get_uniparam;
     offs[22] = offs_data_ready;
     offs[23] = lcpk_offs2_at_read_file;
+    offs[24] = offs_kit_status;
 
     BYTE **addrs[NUM_PATTERNS];
     addrs[0] = &_config->_hp_at_read_file;
@@ -5321,6 +5470,7 @@ DWORD install_func(LPVOID thread_param) {
     addrs[21] = &_config->_hp_at_get_uniparam;
     addrs[22] = &_config->_hp_at_data_ready;
     addrs[23] = &_config->_hp_at_read_file;
+    addrs[24] = &_config->_hp_at_kit_status;
 
     // check hook cache first
     for (int i=0;; i++) {
@@ -5423,7 +5573,8 @@ bool all_found(config_t *cfg) {
             cfg->_hp_at_set_stadium_choice > 0 &&
             cfg->_hp_at_check_kit_choice > 0 &&
             cfg->_hp_at_get_uniparam > 0 &&
-            cfg->_hp_at_data_ready > 0
+            cfg->_hp_at_data_ready > 0 &&
+            cfg->_hp_at_kit_status > 0
         );
     }
     if (cfg->_num_minutes > 0) {
@@ -5566,6 +5717,7 @@ bool hook_if_all_found() {
             _uniparam_base = get_target_location2(_config->_hp_at_get_uniparam);
 
             hook_jmp(_config->_hp_at_data_ready, (BYTE*)sider_data_ready_hk, 0);
+            hook_call_rdx(_config->_hp_at_kit_status, (BYTE*)sider_kit_status_hk, 2);
 
             BYTE *old_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_old;
             BYTE *new_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_new;
@@ -5867,6 +6019,13 @@ LRESULT CALLBACK sider_keyboard_proc(int code, WPARAM wParam, LPARAM lParam)
                         module_t *m = *_curr_overlay_m;
                         module_key_down(m, (int)wParam);
                     }
+                }
+            }
+            else if (_config->_lua_enabled && ((lParam & 0x80000000) != 0)) {
+                if (_curr_overlay_m != _modules.end()) {
+                    // lua callback
+                    module_t *m = *_curr_overlay_m;
+                    module_key_up(m, (int)wParam);
                 }
             }
         }

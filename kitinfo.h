@@ -69,9 +69,12 @@ struct KIT_INTERMED_STRUCT {
 
 struct KIT_HELPER_STRUCT {
     BYTE **vtable;
-    BYTE unknown1[0x68];
-    DWORD unknown2;
-    BYTE unknown3;
+    BYTE unknown1[0x54];
+    BYTE is_goalkeeper;
+    BYTE unknown2[3];
+    BYTE unknown3[0x10];
+    DWORD unknown4;
+    BYTE unknown5;
     BYTE change_flag;
 };
 

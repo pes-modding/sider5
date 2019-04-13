@@ -4400,14 +4400,36 @@ static int sider_context_get_current_kit_id(lua_State *L)
     }
     else if (_ksi && _ksi->task_uniform_impl) {
         if (home_or_away == 0 && _ksi->task_uniform_impl->home_team_id_encoded != 0xffffffff) {
-            lua_pop(L, 1);
-            lua_pushinteger(L, _ksi->task_uniform_impl->home_player_kit_id);
-            return 1;
+            KIT_INTERMED_STRUCT *kis = _ksi->task_uniform_impl->home;
+            if (kis && kis->kit_helper) {
+                lua_pop(L, 1);
+                if (kis->kit_helper->is_goalkeeper == 1) {
+                    lua_pushinteger(L, 0);
+                    lua_pushboolean(L, 1);
+                    return 2;
+                }
+                else {
+                    lua_pushinteger(L, _ksi->task_uniform_impl->home_player_kit_id);
+                    lua_pushnil(L);
+                    return 2;
+                }
+            }
         }
         if (home_or_away == 1 && _ksi->task_uniform_impl->away_team_id_encoded != 0xffffffff) {
-            lua_pop(L, 1);
-            lua_pushinteger(L, _ksi->task_uniform_impl->away_player_kit_id);
-            return 1;
+            KIT_INTERMED_STRUCT *kis = _ksi->task_uniform_impl->away;
+            if (kis && kis->kit_helper) {
+                lua_pop(L, 1);
+                if (kis->kit_helper->is_goalkeeper == 1) {
+                    lua_pushinteger(L, 0);
+                    lua_pushboolean(L, 1);
+                    return 2;
+                }
+                else {
+                    lua_pushinteger(L, _ksi->task_uniform_impl->away_player_kit_id);
+                    lua_pushnil(L);
+                    return 2;
+                }
+            }
         }
     }
     lua_pop(L, 1);
@@ -4518,11 +4540,6 @@ static int sider_context_set_kit(lua_State *L)
 
 static int sider_context_set_gk_kit(lua_State *L)
 {
-    if (!_mi) {
-        // no match_info_struct
-        lua_pop(L, lua_gettop(L));
-        return 0;
-    }
     int team_id = luaL_checkinteger(L, 1);
 
     // force refresh of kit
@@ -4535,15 +4552,7 @@ static int sider_context_set_gk_kit(lua_State *L)
             return 0;
         }
 
-        // apply changes
-        BYTE *radar_color = NULL;
-        if (lua_isnumber(L, 3)) {
-            // if we are to apply radar, then we need to know: home or away
-            int home_or_away = luaL_checkinteger(L, 3);
-            radar_color = _mi->home_shirt1_color1;
-            radar_color += home_or_away * 0x5ec;
-        }
-        set_kit_info_from_lua_table(L, 2, dst_data, radar_color);
+        set_kit_info_from_lua_table(L, 2, dst_data, NULL);
     }
     lua_pop(L, lua_gettop(L));
     return 0;
@@ -4582,19 +4591,29 @@ static int sider_context_refresh_kit(lua_State *L)
         lua_pop(L, lua_gettop(L));
         return 0;
     }
+
     logu_("refresh_kit:: kis=%p\n", kis);
     logu_("refresh_kit:: kis->kit_helper=%p\n", kis->kit_helper);
-
-    // flip change flag
-    logu_("refresh_kit:: kis->kit_helper->change_flag was: %d\n", kis->kit_helper->change_flag);
-    kis->kit_helper->change_flag = (kis->kit_helper->change_flag == 0) ? 1 : 0;
-
     logu_("refresh_kit: home=%d (kit:%d), away=%d (kit:%d)\n",
         decode_team_id(_ksi->task_uniform_impl->home_team_id_encoded),
         _ksi->task_uniform_impl->home_player_kit_id,
         decode_team_id(_ksi->task_uniform_impl->away_team_id_encoded),
         _ksi->task_uniform_impl->away_player_kit_id
     );
+
+    // check for ongoing refresh
+    if (home_or_away == 0 && _ksi->task_uniform_impl->home_change_flag1 == 1) {
+        logu_("refresh_kit:: home refresh already requested. Skipping this one\n");
+        return 0;
+    }
+    if (home_or_away == 1 && _ksi->task_uniform_impl->away_change_flag1 == 1) {
+        logu_("refresh_kit:: away refresh already requested. Skipping this one\n");
+        return 0;
+    }
+
+    // flip change flag
+    logu_("refresh_kit:: kis->kit_helper->change_flag was: %d\n", kis->kit_helper->change_flag);
+    kis->kit_helper->change_flag = (kis->kit_helper->change_flag == 0) ? 1 : 0;
 
     // flip TaskIniformImpl change flag
     if (home_or_away == 0) {

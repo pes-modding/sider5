@@ -630,7 +630,8 @@ static BYTE* find_kit_info(int team_id, char *suffix)
                 *first_underscore = '\0';
                 int id = 0;
                 if (sscanf(kit_config_name,"%d",&id)==1) {
-                    if (team_id == id) {
+                    if ((team_id == id && memcmp(first_underscore+1, "DEF", 3)==0) ||
+                        (team_id == id + 0x10000 && memcmp(first_underscore+1, "ACL", 3)==0)) {
                         if (memcmp(second_underscore+1, suffix, strlen(suffix))==0) {
                             BYTE *p = uniparam + cf_starting_offs;
                             if (*p == 1) {
@@ -3885,7 +3886,7 @@ void sider_lookup_file(LONGLONG p1, LONGLONG p2, char *filename)
 
 DWORD decode_team_id(DWORD team_id_encoded)
 {
-    return (team_id_encoded >> 0x0e) & 0xffff;
+    return (team_id_encoded >> 0x0e) & 0x1ffff;
 }
 
 void sider_set_team_id(DWORD *dest, DWORD *team_id_encoded, DWORD offset)

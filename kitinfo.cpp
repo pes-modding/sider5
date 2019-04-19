@@ -357,7 +357,7 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst, BYTE *radar
     **/
     lua_getfield(L, index, "RightShortX");
     if (lua_isstring(L, -1)) {
-        set_word_bits(dst+0x1e, luaL_checkinteger(L, -1), 11, 15);
+        set_word_bits(dst+0x1e, luaL_checkinteger(L, -1), 11, 16);
     }
     lua_pop(L, 1);
     lua_getfield(L, index, "RightShortY");

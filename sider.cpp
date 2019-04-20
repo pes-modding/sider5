@@ -531,6 +531,14 @@ extern "C" void sider_kit_status(KIT_STATUS_INFO *ksi, TASK_UNIFORM_IMPL *tu_imp
 
 extern "C" void sider_kit_status_hk();
 
+extern "C" void sider_set_team_for_kits(KIT_STATUS_INFO *ksi, DWORD team_id_encoded, LONGLONG r8, DWORD *which);
+
+extern "C" void sider_set_team_for_kits_hk();
+
+extern "C" void sider_clear_team_for_kits(KIT_STATUS_INFO *ksi, DWORD *which);
+
+extern "C" void sider_clear_team_for_kits_hk();
+
 static DWORD dwThreadId;
 static DWORD hookingThreadId = 0;
 static HMODULE myHDLL;
@@ -967,6 +975,8 @@ public:
     BYTE *_hp_at_get_uniparam;
     BYTE *_hp_at_data_ready;
     BYTE *_hp_at_kit_status;
+    BYTE *_hp_at_set_team_for_kits;
+    BYTE *_hp_at_clear_team_for_kits;
 
     BYTE *_hp_at_set_min_time;
     BYTE *_hp_at_set_max_time;
@@ -1022,6 +1032,8 @@ public:
                  _hp_at_get_uniparam(NULL),
                  _hp_at_data_ready(NULL),
                  _hp_at_kit_status(NULL),
+                 _hp_at_set_team_for_kits(NULL),
+                 _hp_at_clear_team_for_kits(NULL),
                  _hp_at_set_min_time(NULL),
                  _hp_at_set_max_time(NULL),
                  _hp_at_set_minutes(NULL),
@@ -4164,6 +4176,30 @@ void sider_kit_status(KIT_STATUS_INFO *ksi, TASK_UNIFORM_IMPL *tu_impl)
     }
 }
 
+void sider_set_team_for_kits(KIT_STATUS_INFO *ksi, DWORD team_id_encoded, LONGLONG r8, DWORD *which)
+{
+    if (ksi && which) {
+        if (which == &(ksi->home_team_id_encoded)) {
+            logu_("sider_set_team_for_kits: home=%d, is_edit_mode=%d\n", decode_team_id(team_id_encoded), ksi->is_edit_mode);
+        }
+        else if (which == &(ksi->away_team_id_encoded)) {
+            logu_("sider_set_team_for_kits: away=%d, is_edit_mode=%d\n", decode_team_id(team_id_encoded), ksi->is_edit_mode);
+        }
+    }
+}
+
+void sider_clear_team_for_kits(KIT_STATUS_INFO *ksi, DWORD *which)
+{
+    if (ksi && which) {
+        if (which == &(ksi->home_team_id_encoded)) {
+            logu_("sider_clear_team_for_kits: home=%d, is_edit_mode=%d\n", decode_team_id(ksi->home_team_id_encoded), ksi->is_edit_mode);
+        }
+        else if (which == &(ksi->away_team_id_encoded)) {
+            logu_("sider_clear_team_for_kits: away=%d, is_edit_mode=%d\n", decode_team_id(ksi->away_team_id_encoded), ksi->is_edit_mode);
+        }
+    }
+}
+
 void sider_check_kit_choice(MATCH_INFO_STRUCT *mi, DWORD home_or_away)
 {
     logu_("check_kit_choice: mi=%p, home_or_away=%d\n", mi, home_or_away);
@@ -5377,7 +5413,7 @@ DWORD install_func(LPVOID thread_param) {
     hook_cache_t hcache(cache_file);
 
     // prepare patterns
-#define NUM_PATTERNS 25
+#define NUM_PATTERNS 27
     BYTE *frag[NUM_PATTERNS];
     frag[0] = lcpk_pattern_at_read_file;
     frag[1] = lcpk_pattern_at_get_size;
@@ -5404,6 +5440,8 @@ DWORD install_func(LPVOID thread_param) {
     frag[22] = pattern_data_ready;
     frag[23] = lcpk_pattern2_at_read_file;
     frag[24] = pattern_kit_status;
+    frag[25] = pattern_set_team_for_kits;
+    frag[26] = pattern_clear_team_for_kits;
 
     memset(_variations, 0xff, sizeof(_variations));
     _variations[0] = 23;
@@ -5437,6 +5475,8 @@ DWORD install_func(LPVOID thread_param) {
     frag_len[22] = _config->_lua_enabled ? sizeof(pattern_data_ready)-1 : 0;
     frag_len[23] = _config->_livecpk_enabled ? sizeof(lcpk_pattern2_at_read_file)-1 : 0;
     frag_len[24] = _config->_lua_enabled ? sizeof(pattern_kit_status)-1 : 0;
+    frag_len[25] = _config->_lua_enabled ? sizeof(pattern_set_team_for_kits)-1 : 0;
+    frag_len[26] = _config->_lua_enabled ? sizeof(pattern_clear_team_for_kits)-1 : 0;
 
     int offs[NUM_PATTERNS];
     offs[0] = lcpk_offs_at_read_file;
@@ -5464,6 +5504,8 @@ DWORD install_func(LPVOID thread_param) {
     offs[22] = offs_data_ready;
     offs[23] = lcpk_offs2_at_read_file;
     offs[24] = offs_kit_status;
+    offs[25] = offs_set_team_for_kits;
+    offs[26] = offs_clear_team_for_kits;
 
     BYTE **addrs[NUM_PATTERNS];
     addrs[0] = &_config->_hp_at_read_file;
@@ -5491,6 +5533,8 @@ DWORD install_func(LPVOID thread_param) {
     addrs[22] = &_config->_hp_at_data_ready;
     addrs[23] = &_config->_hp_at_read_file;
     addrs[24] = &_config->_hp_at_kit_status;
+    addrs[25] = &_config->_hp_at_set_team_for_kits;
+    addrs[26] = &_config->_hp_at_clear_team_for_kits;
 
     // check hook cache first
     for (int i=0;; i++) {
@@ -5594,7 +5638,9 @@ bool all_found(config_t *cfg) {
             cfg->_hp_at_check_kit_choice > 0 &&
             cfg->_hp_at_get_uniparam > 0 &&
             cfg->_hp_at_data_ready > 0 &&
-            cfg->_hp_at_kit_status > 0
+            cfg->_hp_at_kit_status > 0 &&
+            cfg->_hp_at_set_team_for_kits > 0 &&
+            cfg->_hp_at_clear_team_for_kits > 0
         );
     }
     if (cfg->_num_minutes > 0) {
@@ -5738,6 +5784,9 @@ bool hook_if_all_found() {
 
             hook_jmp(_config->_hp_at_data_ready, (BYTE*)sider_data_ready_hk, 0);
             hook_call_rdx(_config->_hp_at_kit_status, (BYTE*)sider_kit_status_hk, 2);
+
+            hook_call_rcx(_config->_hp_at_set_team_for_kits, (BYTE*)sider_set_team_for_kits_hk, 2);
+            hook_call(_config->_hp_at_clear_team_for_kits, (BYTE*)sider_clear_team_for_kits_hk, 1);
 
             BYTE *old_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_old;
             BYTE *new_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_new;

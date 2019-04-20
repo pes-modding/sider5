@@ -430,4 +430,28 @@ static BYTE pattern_kit_status[15] =
     "\x0f\xb6\x53\x4c";
 static int offs_kit_status = 0;
 
+/*
+0000000150A7259F | 31 C2                              | xor edx,eax                          |
+0000000150A725A1 | 81 E2 FF 3F 00 00                  | and edx,3FFF                         |
+0000000150A725A7 | 31 C2                              | xor edx,eax                          |
+0000000150A725A9 | 41 89 51 10                        | mov dword ptr ds:[r9+10],edx         | set team id (edit mode?)
+*/
+static BYTE pattern_set_team_for_kits[15] =
+    "\x31\xc2"
+    "\x81\xe2\xff\x3f\x00\x00"
+    "\x31\xc2"
+    "\x41\x89\x51\x10";
+static int offs_set_team_for_kits = 0;
+
+/*
+0000000150A74D73 | 89 8A FC FF FF FF                  | mov dword ptr ds:[rdx-4],ecx         | clear (reset) team id (for kits)
+0000000150A74D79 | C7 42 18 FF FF 00 00               | mov dword ptr ds:[rdx+18],FFFF       |
+0000000150A74D80 | C7 42 30 FF FF FF FF               | mov dword ptr ds:[rdx+30],FFFFFFFF   |
+*/
+static BYTE pattern_clear_team_for_kits[21] =
+    "\x89\x8a\xfc\xff\xff\xff"
+    "\xc7\x42\x18\xff\xff\x00\x00"
+    "\xc7\x42\x30\xff\xff\xff\xff";
+static int offs_clear_team_for_kits = 0;
+
 #endif

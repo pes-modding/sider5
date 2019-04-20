@@ -3,7 +3,7 @@
 ;
 ;Small functions to help with hooking
 ;Typically, they would call a function
-;from sider, which does all the actual work 
+;from sider, which does all the actual work
 ;------------------------------------------
 
 extern sider_read_file:proc
@@ -23,6 +23,8 @@ extern sider_set_stadium_choice:proc
 extern sider_check_kit_choice:proc
 extern sider_data_ready:proc
 extern sider_kit_status:proc
+extern sider_set_team_for_kits:proc
+extern sider_clear_team_for_kits:proc
 
 .code
 sider_read_file_hk proc
@@ -425,5 +427,64 @@ sider_kit_status_hk proc
         ret
 
 sider_kit_status_hk endp
+
+;0000000150A7259F | 31 C2                              | xor edx,eax                          |
+;0000000150A725A1 | 81 E2 FF 3F 00 00                  | and edx,3FFF                         |
+;0000000150A725A7 | 31 C2                              | xor edx,eax                          |
+;0000000150A725A9 | 41 89 51 10                        | mov dword ptr ds:[r9+10],edx         | set team id (for kits)
+
+sider_set_team_for_kits_hk proc
+
+        push    r8
+        push    r9
+        push    r10
+        push    r11
+        sub     rsp,28h
+        xor     edx,eax
+        and     edx,3fffh
+        xor     edx,eax
+        mov     dword ptr [r9+10h],edx
+        mov     rcx,rbx
+        add     r9,10h
+        call    sider_set_team_for_kits
+        mov     rcx,3fffh
+        add     rsp,28h
+        pop     r11
+        pop     r10
+        pop     r9
+        pop     r8
+        ret
+
+sider_set_team_for_kits_hk endp
+
+;0000000150A74D73 | 89 8A FC FF FF FF                  | mov dword ptr ds:[rdx-4],ecx         | clear (reset) team id (for kits)
+;0000000150A74D79 | C7 42 18 FF FF 00 00               | mov dword ptr ds:[rdx+18],FFFF       |
+;0000000150A74D80 | C7 42 30 FF FF FF FF               | mov dword ptr ds:[rdx+30],FFFFFFFF   |
+
+sider_clear_team_for_kits_hk proc
+
+        push    rcx
+        push    rdx
+        push    r8
+        push    r9
+        push    r10
+        push    r11
+        sub     rsp,28h
+        mov     dword ptr [rdx-4h],ecx
+        mov     dword ptr [rdx+18h],0ffffh
+        mov     rcx,rbx
+        sub     rdx,4
+        call    sider_clear_team_for_kits
+        mov     rax,3fffh
+        add     rsp,28h
+        pop     r11
+        pop     r10
+        pop     r9
+        pop     r8
+        pop     rdx
+        pop     rcx
+        ret
+
+sider_clear_team_for_kits_hk endp
 
 end

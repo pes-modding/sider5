@@ -1396,6 +1396,8 @@ struct module_t {
     int evt_lcpk_data_ready;
     int evt_set_teams;
     int evt_set_kits;
+    int evt_set_home_team_for_kits;
+    int evt_set_away_team_for_kits;
     /*
     int evt_set_tid;
     */
@@ -2006,6 +2008,46 @@ void module_set_teams(module_t *m, DWORD home, DWORD away)
         lua_pushvalue(L, 1); // ctx
         lua_pushinteger(L, home);
         lua_pushinteger(L, away);
+        if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
+            const char *err = luaL_checkstring(L, -1);
+            logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+            lua_pop(L, 1);
+        }
+        LeaveCriticalSection(&_cs);
+    }
+}
+
+void module_set_home_team_for_kits(module_t *m, DWORD team_id, bool is_edit_mode)
+{
+    if (m->evt_set_home_team_for_kits != 0) {
+        EnterCriticalSection(&_cs);
+        lua_pushvalue(m->L, m->evt_set_home_team_for_kits);
+        lua_xmove(m->L, L, 1);
+        // push params
+        lua_pushvalue(L, 1); // ctx
+        lua_pushinteger(L, team_id);
+        lua_pushinteger(L, is_edit_mode);
+
+        if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
+            const char *err = luaL_checkstring(L, -1);
+            logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
+            lua_pop(L, 1);
+        }
+        LeaveCriticalSection(&_cs);
+    }
+}
+
+void module_set_away_team_for_kits(module_t *m, DWORD team_id, bool is_edit_mode)
+{
+    if (m->evt_set_away_team_for_kits != 0) {
+        EnterCriticalSection(&_cs);
+        lua_pushvalue(m->L, m->evt_set_away_team_for_kits);
+        lua_xmove(m->L, L, 1);
+        // push params
+        lua_pushvalue(L, 1); // ctx
+        lua_pushinteger(L, team_id);
+        lua_pushinteger(L, is_edit_mode);
+
         if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
             const char *err = luaL_checkstring(L, -1);
             logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
@@ -4181,9 +4223,29 @@ void sider_set_team_for_kits(KIT_STATUS_INFO *ksi, DWORD team_id_encoded, LONGLO
     if (ksi && which) {
         if (which == &(ksi->home_team_id_encoded)) {
             logu_("sider_set_team_for_kits: home=%d, is_edit_mode=%d\n", decode_team_id(team_id_encoded), ksi->is_edit_mode);
+            if (ksi->is_edit_mode) {
+                set_context_field_int("edit_mode_team", decode_team_id(team_id_encoded));
+            }
+            if (_config->_lua_enabled) {
+                // lua call-backs
+                list<module_t*>::iterator i;
+                for (i = _modules.begin(); i != _modules.end(); i++) {
+                    module_t *m = *i;
+                    module_set_home_team_for_kits(m, decode_team_id(team_id_encoded), ksi->is_edit_mode);
+                }
+            }
         }
         else if (which == &(ksi->away_team_id_encoded)) {
             logu_("sider_set_team_for_kits: away=%d, is_edit_mode=%d\n", decode_team_id(team_id_encoded), ksi->is_edit_mode);
+
+            if (_config->_lua_enabled) {
+                // lua call-backs
+                list<module_t*>::iterator i;
+                for (i = _modules.begin(); i != _modules.end(); i++) {
+                    module_t *m = *i;
+                    module_set_away_team_for_kits(m, decode_team_id(team_id_encoded), ksi->is_edit_mode);
+                }
+            }
         }
     }
 }
@@ -4193,6 +4255,7 @@ void sider_clear_team_for_kits(KIT_STATUS_INFO *ksi, DWORD *which)
     if (ksi && which) {
         if (which == &(ksi->home_team_id_encoded)) {
             logu_("sider_clear_team_for_kits: home=%d, is_edit_mode=%d\n", decode_team_id(ksi->home_team_id_encoded), ksi->is_edit_mode);
+            set_context_field_nil("edit_mode_team");
         }
         else if (which == &(ksi->away_team_id_encoded)) {
             logu_("sider_clear_team_for_kits: away=%d, is_edit_mode=%d\n", decode_team_id(ksi->away_team_id_encoded), ksi->is_edit_mode);
@@ -4490,20 +4553,14 @@ static int sider_context_set_current_kit_id(lua_State *L)
 
 static int sider_context_get_kit(lua_State *L)
 {
-    if (!_mi) {
-        // no match_info_struct
-        lua_pop(L, 2);
-        return 0;
-    }
     int team_id = luaL_checkinteger(L, 1);
     int kit_id = luaL_checkinteger(L, 2);
     if (kit_id > 9) { kit_id = 9; }
     if (kit_id < 0) { kit_id = 0; }
 
-    logu_("get_kit:: team_id=%d, kit_id=%d\n", team_id, kit_id);
+    DBG(2048) logu_("get_kit:: team_id=%d, kit_id=%d\n", team_id, kit_id);
     BYTE *src_data = find_kit_info(team_id, suffix_map[kit_id]);
     if (!src_data) {
-        logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, kit_id);
         lua_pop(L, 2);
         return 0;
     }
@@ -4517,17 +4574,11 @@ static int sider_context_get_kit(lua_State *L)
 
 static int sider_context_get_gk_kit(lua_State *L)
 {
-    if (!_mi) {
-        // no match_info_struct
-        lua_pop(L, 1);
-        return 0;
-    }
     int team_id = luaL_checkinteger(L, 1);
 
-    logu_("get_gk_kit:: team_id=%d\n", team_id);
+    DBG(2048) logu_("get_gk_kit:: team_id=%d\n", team_id);
     BYTE *src_data = find_kit_info(team_id, gk_suffix_map[0]);
     if (!src_data) {
-        logu_("problem: cannot find GK kit info for team %d\n", team_id);
         lua_pop(L, 1);
         return 0;
     }
@@ -4548,7 +4599,7 @@ static int sider_context_set_kit(lua_State *L)
 
     // force refresh of kit
     if (lua_istable(L, 3)) {
-        logu_("set_kit:: team_id=%d, kit_id=%d\n", team_id, kit_id);
+        DBG(2048) logu_("set_kit:: team_id=%d, kit_id=%d\n", team_id, kit_id);
         BYTE *dst_data = find_kit_info(team_id, suffix_map[kit_id]);
         if (!dst_data) {
             logu_("problem: cannot find kit info for team %d, kit %d\n", team_id, kit_id);
@@ -4581,7 +4632,7 @@ static int sider_context_set_gk_kit(lua_State *L)
 
     // force refresh of kit
     if (lua_istable(L, 2)) {
-        logu_("set_gk_kit:: team_id=%d\n", team_id);
+        DBG(2048) logu_("set_gk_kit:: team_id=%d\n", team_id);
         BYTE *dst_data = find_kit_info(team_id, gk_suffix_map[0]);
         if (!dst_data) {
             logu_("problem: cannot find GK kit info for team %d\n", team_id);
@@ -4720,7 +4771,19 @@ static int sider_context_register(lua_State *L)
         _curr_m->evt_set_kits = lua_gettop(_curr_m->L);
         logu_("Registered for \"%s\" event\n", event_key);
     }
-    /*
+    else if (strcmp(event_key, "set_home_team_for_kits")==0) {
+        lua_pushvalue(L, -1);
+        lua_xmove(L, _curr_m->L, 1);
+        _curr_m->evt_set_home_team_for_kits = lua_gettop(_curr_m->L);
+        logu_("Registered for \"%s\" event\n", event_key);
+    }
+    else if (strcmp(event_key, "set_away_team_for_kits")==0) {
+        lua_pushvalue(L, -1);
+        lua_xmove(L, _curr_m->L, 1);
+        _curr_m->evt_set_away_team_for_kits = lua_gettop(_curr_m->L);
+        logu_("Registered for \"%s\" event\n", event_key);
+    }
+      /*
     else if (strcmp(event_key, "set_tournament_id")==0) {
         lua_pushvalue(L, -1);
         lua_xmove(L, _curr_m->L, 1);

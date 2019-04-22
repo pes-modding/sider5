@@ -177,6 +177,24 @@ struct MATCH_INFO_STRUCT {
     BYTE unknown19[0x54];
 };
 
+struct SHIRTCOLOR_STRUCT {
+    BYTE index;
+    BYTE unknown1;
+    BYTE color1[3];
+    BYTE color2[3];
+};
+
+struct TEAM_INFO_STRUCT {
+    DWORD team_id_encoded;
+    BYTE team_name[0x46];
+    BYTE team_abbr[4];
+    BYTE unknown10[2];
+    BYTE unknown11[0x538];
+    SHIRTCOLOR_STRUCT players[2];
+    SHIRTCOLOR_STRUCT goalkeepers[1];
+    SHIRTCOLOR_STRUCT extra_players[7];
+};
+
 struct STAD_INFO_STRUCT {
     DWORD unknown0;
     WORD id;
@@ -205,6 +223,8 @@ struct STAD_INFO_STRUCT _stadium_info;
 MATCH_INFO_STRUCT *_mi = NULL;
 void *_uniparam_base = NULL;
 KIT_STATUS_INFO *_ksi = NULL;
+TEAM_INFO_STRUCT *_home_team_info = NULL;
+TEAM_INFO_STRUCT *_away_team_info = NULL;
 
 // home team encoded-id offset: 0x104
 // home team name offset:       0x108
@@ -479,7 +499,7 @@ extern "C" void sider_lookup_file(LONGLONG p1, LONGLONG p2, char *filename);
 
 extern "C" void sider_lookup_file_hk();
 
-extern "C" void sider_set_team_id(DWORD *dest, DWORD *team_id_encoded, DWORD offset);
+extern "C" void sider_set_team_id(DWORD *dest, TEAM_INFO_STRUCT *team_info, DWORD offset);
 
 extern "C" void sider_set_team_id_hk();
 
@@ -1998,7 +2018,7 @@ void module_after_set_conditions(module_t *m)
     }
 }
 
-void module_set_teams(module_t *m, DWORD home, DWORD away)
+void module_set_teams(module_t *m, DWORD home, DWORD away, TEAM_INFO_STRUCT *home_team_info, TEAM_INFO_STRUCT *away_team_info)
 {
     if (m->evt_set_teams != 0) {
         EnterCriticalSection(&_cs);
@@ -2008,7 +2028,9 @@ void module_set_teams(module_t *m, DWORD home, DWORD away)
         lua_pushvalue(L, 1); // ctx
         lua_pushinteger(L, home);
         lua_pushinteger(L, away);
-        if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
+        lua_pushlightuserdata(L, home_team_info);
+        lua_pushlightuserdata(L, away_team_info);
+        if (lua_pcall(L, 5, 0, 0) != LUA_OK) {
             const char *err = luaL_checkstring(L, -1);
             logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
             lua_pop(L, 1);
@@ -3943,9 +3965,10 @@ DWORD decode_team_id(DWORD team_id_encoded)
     return (team_id_encoded >> 0x0e) & 0x1ffff;
 }
 
-void sider_set_team_id(DWORD *dest, DWORD *team_id_encoded, DWORD offset)
+void sider_set_team_id(DWORD *dest, TEAM_INFO_STRUCT *team_info, DWORD offset)
 {
     bool is_home = (offset == 0);
+    DWORD *team_id_encoded = &(team_info->team_id_encoded);
     if (!dest || !team_id_encoded) {
         // safety check
         return;
@@ -3953,9 +3976,11 @@ void sider_set_team_id(DWORD *dest, DWORD *team_id_encoded, DWORD offset)
 
     if (is_home) {
         logu_("setting HOME team: %d\n", decode_team_id(*team_id_encoded));
+        _home_team_info = team_info;
     }
     else {
         logu_("setting AWAY team: %d\n", decode_team_id(*team_id_encoded));
+        _away_team_info = team_info;
     }
 
     BYTE *p = (BYTE*)dest - 0x118;
@@ -3989,7 +4014,7 @@ void sider_set_team_id(DWORD *dest, DWORD *team_id_encoded, DWORD offset)
             list<module_t*>::iterator i;
             for (i = _modules.begin(); i != _modules.end(); i++) {
                 module_t *m = *i;
-                module_set_teams(m, home, away);
+                module_set_teams(m, home, away, _home_team_info, _away_team_info);
             }
         }
     }
@@ -4646,6 +4671,101 @@ static int sider_context_set_gk_kit(lua_State *L)
     return 0;
 }
 
+static int sider_context_get_shirt_colors(lua_State *L)
+{
+    if (!lua_isuserdata(L, 1)) {
+        lua_pop(L, lua_gettop(L));
+        lua_pushstring(L, "first argument must be a lightuserdata pointer to team-info");
+        return lua_error(L);
+    }
+
+    TEAM_INFO_STRUCT *team_info = (TEAM_INFO_STRUCT*)lua_touserdata(L, 1);
+    int team_id = luaL_checkinteger(L, 2);
+    int kit_id = luaL_checkinteger(L, 3);
+
+    if (kit_id < 0 || kit_id > 9) {
+        lua_pop(L, lua_gettop(L));
+        lua_pushstring(L, "kit_id must be in [0,9] range");
+        return lua_error(L);
+    }
+
+    lua_pop(L, lua_gettop(L));
+
+    SHIRTCOLOR_STRUCT *scs = NULL;
+    if (kit_id < 2) {
+        scs = &(team_info->players[kit_id]);
+    }
+    else {
+        scs = &(team_info->extra_players[kit_id-2]);
+    }
+    if (scs->index != 0x91) {
+        lua_pushfstring(L, "#%02X%02X%02X", scs->color1[0], scs->color1[1], scs->color1[2]);
+        lua_pushfstring(L, "#%02X%02X%02X", scs->color2[0], scs->color2[1], scs->color2[2]);
+    }
+    else {
+        lua_pushnil(L);
+        lua_pushnil(L);
+    }
+    return 2;
+}
+
+static int sider_context_set_shirt_colors(lua_State *L)
+{
+    if (!lua_isuserdata(L, 1)) {
+        lua_pop(L, lua_gettop(L));
+        lua_pushstring(L, "first argument must be a lightuserdata pointer to team-info");
+        return lua_error(L);
+    }
+
+    TEAM_INFO_STRUCT *team_info = (TEAM_INFO_STRUCT*)lua_touserdata(L, 1);
+    int team_id = luaL_checkinteger(L, 2);
+    int kit_id = luaL_checkinteger(L, 3);
+
+    if (kit_id < 0 || kit_id > 9) {
+        lua_pop(L, lua_gettop(L));
+        lua_pushstring(L, "kit_id must be in [0,9] range");
+        return lua_error(L);
+    }
+
+    const char *color1 = luaL_checkstring(L, 4);
+    const char *color2 = luaL_checkstring(L, 5);
+
+    SHIRTCOLOR_STRUCT *scs = NULL;
+    if (kit_id < 2) {
+        scs = &(team_info->players[kit_id]);
+    }
+    else {
+        scs = &(team_info->extra_players[kit_id-2]);
+    }
+
+    DWORD value;
+    if (color1[0]!='\0') {
+        char clr1[16] = {0};
+        strcat(clr1,"0x");
+        strncat(clr1,color1+1,6);
+        if (sscanf(clr1, "%x", &value)==1) {
+            scs->color1[0] = (value >> 16) & 0xff;
+            scs->color1[1] = (value >> 8) & 0xff;
+            scs->color1[2] = value & 0xff;
+            logu_("color1 became: %02x,%02x,%02x\n", scs->color1[0], scs->color1[1], scs->color1[2]);
+        }
+    }
+    if (color2[0]!='\0') {
+        char clr2[16] = {0};
+        strcat(clr2,"0x");
+        strncat(clr2,color2+1,6);
+        if (sscanf(clr2, "%x", &value)==1) {
+            scs->color2[0] = (value >> 16) & 0xff;
+            scs->color2[1] = (value >> 8) & 0xff;
+            scs->color2[2] = value & 0xff;
+            logu_("color2 became: %02x,%02x,%02x\n", scs->color2[0], scs->color2[1], scs->color2[2]);
+        }
+    }
+
+    lua_pop(L, lua_gettop(L));
+    return 0;
+}
+
 static int sider_context_refresh_kit(lua_State *L)
 {
     logu_("refresh_kit:: ~~~~~~~~~~~~~~~~~~~~~~~~~~~\n");
@@ -4939,6 +5059,10 @@ static void push_context_table(lua_State *L)
     lua_setfield(L, -2, "set");
     lua_pushcfunction(L, sider_context_set_gk_kit);
     lua_setfield(L, -2, "set_gk");
+    lua_pushcfunction(L, sider_context_set_shirt_colors);
+    lua_setfield(L, -2, "set_shirt_colors");
+    lua_pushcfunction(L, sider_context_get_shirt_colors);
+    lua_setfield(L, -2, "get_shirt_colors");
     lua_pushcfunction(L, sider_context_refresh_kit);
     lua_setfield(L, -2, "refresh");
     lua_setfield(L, -2, "kits");

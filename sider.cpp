@@ -4680,8 +4680,7 @@ static int sider_context_get_shirt_colors(lua_State *L)
     }
 
     TEAM_INFO_STRUCT *team_info = (TEAM_INFO_STRUCT*)lua_touserdata(L, 1);
-    int team_id = luaL_checkinteger(L, 2);
-    int kit_id = luaL_checkinteger(L, 3);
+    int kit_id = luaL_checkinteger(L, 2);
 
     if (kit_id < 0 || kit_id > 9) {
         lua_pop(L, lua_gettop(L));
@@ -4718,8 +4717,7 @@ static int sider_context_set_shirt_colors(lua_State *L)
     }
 
     TEAM_INFO_STRUCT *team_info = (TEAM_INFO_STRUCT*)lua_touserdata(L, 1);
-    int team_id = luaL_checkinteger(L, 2);
-    int kit_id = luaL_checkinteger(L, 3);
+    int kit_id = luaL_checkinteger(L, 2);
 
     if (kit_id < 0 || kit_id > 9) {
         lua_pop(L, lua_gettop(L));
@@ -4727,8 +4725,8 @@ static int sider_context_set_shirt_colors(lua_State *L)
         return lua_error(L);
     }
 
-    const char *color1 = luaL_checkstring(L, 4);
-    const char *color2 = luaL_checkstring(L, 5);
+    const char *color1 = luaL_checkstring(L, 3);
+    const char *color2 = luaL_checkstring(L, 4);
 
     SHIRTCOLOR_STRUCT *scs = NULL;
     if (kit_id < 2) {

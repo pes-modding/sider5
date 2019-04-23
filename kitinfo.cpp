@@ -66,7 +66,7 @@ int get_word_bits(void *vp, int bit_from, int bit_to) {
     return value;
 }
 
-void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst, BYTE *radar_color) {
+void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst, BYTE *radar_color, BYTE *shirt_color) {
     if (!dst) {
         // nothing to do
         return;
@@ -275,22 +275,43 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst, BYTE *radar
     **/
     bool radar_color1_set(false);
     bool radar_color2_set(false);
+    bool shirt_color1_set(false);
+    bool shirt_color2_set(false);
+
     lua_getfield(L, index, "UniColor_Color1");
-    if (lua_isstring(L, -1) && radar_color) {
-        char s[8];
-        memset(s,0,8);
-        strncat(s, luaL_checkstring(L, -1), 7);
-        str_to_rgb(radar_color, s);
-        radar_color1_set = true;
+    if (lua_isstring(L, -1)) {
+        if (radar_color) {
+            char s[8];
+            memset(s,0,8);
+            strncat(s, luaL_checkstring(L, -1), 7);
+            str_to_rgb(radar_color, s);
+            radar_color1_set = true;
+        }
+        if (shirt_color) {
+            char s[8];
+            memset(s,0,8);
+            strncat(s, luaL_checkstring(L, -1), 7);
+            str_to_rgb(shirt_color, s);
+            shirt_color1_set = true;
+        }
     }
     lua_pop(L, 1);
     lua_getfield(L, index, "UniColor_Color2");
-    if (lua_isstring(L, -1) && radar_color) {
-        char s[8];
-        memset(s,0,8);
-        strncat(s, luaL_checkstring(L, -1), 7);
-        str_to_rgb(radar_color+3, s);
-        radar_color2_set = true;
+    if (lua_isstring(L, -1)) {
+        if (radar_color) {
+            char s[8];
+            memset(s,0,8);
+            strncat(s, luaL_checkstring(L, -1), 7);
+            str_to_rgb(radar_color+3, s);
+            radar_color2_set = true;
+        }
+        if (shirt_color) {
+            char s[8];
+            memset(s,0,8);
+            strncat(s, luaL_checkstring(L, -1), 7);
+            str_to_rgb(shirt_color+3, s);
+            shirt_color2_set = true;
+        }
     }
     lua_pop(L, 1);
     lua_getfield(L, index, "ShirtColor1");
@@ -304,6 +325,10 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst, BYTE *radar
         if (radar_color && !radar_color1_set) {
             str_to_rgb(radar_color, s);
         }
+        // set as shirt color too, if UniColor_Color1 is absent
+        if (shirt_color && !shirt_color1_set) {
+            str_to_rgb(shirt_color, s);
+        }
     }
     lua_pop(L, 1);
     lua_getfield(L, index, "ShirtColor2");
@@ -316,6 +341,10 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst, BYTE *radar
         // set as radar too, if UniColor_Color2 is absent
         if (radar_color && !radar_color2_set) {
             str_to_rgb(radar_color+3, s);
+        }
+        // set as shirt color too, if UniColor_Color2 is absent
+        if (shirt_color && !shirt_color2_set) {
+            str_to_rgb(shirt_color+3, s);
         }
     }
     lua_pop(L, 1);

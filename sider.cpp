@@ -231,8 +231,6 @@ TEAM_INFO_STRUCT *_away_team_info = NULL;
 // away team encoded-id offset: 0x624
 // away team name offset:       0x628
 
-MATCH_INFO_STRUCT *_main_mi = NULL;
-
 int get_context_field_int(const char *name);
 void set_context_field_lightuserdata(const char *name, void *p);
 void set_context_field_boolean(const char *name, bool value);
@@ -2018,7 +2016,7 @@ void module_after_set_conditions(module_t *m)
     }
 }
 
-void module_set_teams(module_t *m, DWORD home, DWORD away, TEAM_INFO_STRUCT *home_team_info, TEAM_INFO_STRUCT *away_team_info)
+void module_set_teams(module_t *m, DWORD home, DWORD away) //, TEAM_INFO_STRUCT *home_team_info, TEAM_INFO_STRUCT *away_team_info)
 {
     if (m->evt_set_teams != 0) {
         EnterCriticalSection(&_cs);
@@ -2028,9 +2026,9 @@ void module_set_teams(module_t *m, DWORD home, DWORD away, TEAM_INFO_STRUCT *hom
         lua_pushvalue(L, 1); // ctx
         lua_pushinteger(L, home);
         lua_pushinteger(L, away);
-        lua_pushlightuserdata(L, home_team_info);
-        lua_pushlightuserdata(L, away_team_info);
-        if (lua_pcall(L, 5, 0, 0) != LUA_OK) {
+        //lua_pushlightuserdata(L, home_team_info);
+        //lua_pushlightuserdata(L, away_team_info);
+        if (lua_pcall(L, 3, 0, 0) != LUA_OK) {
             const char *err = luaL_checkstring(L, -1);
             logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
             lua_pop(L, 1);
@@ -2116,12 +2114,12 @@ bool module_set_kits(module_t *m, MATCH_INFO_STRUCT *mi)
         if (lua_istable(L, -2)) {
             // home table
             BYTE *radar_color = (home_kit_id == 0) ? _mi->home_shirt1_color1 : _mi->home_shirt2_color1;
-            set_kit_info_from_lua_table(L, -2, home_ki, radar_color);
+            set_kit_info_from_lua_table(L, -2, home_ki, radar_color, NULL);
         }
         if (lua_istable(L, -1)) {
             // away table
             BYTE *radar_color = (away_kit_id == 0) ? _mi->away_shirt1_color1 : _mi->away_shirt2_color1;
-            set_kit_info_from_lua_table(L, -1, away_ki, radar_color);
+            set_kit_info_from_lua_table(L, -1, away_ki, radar_color, NULL);
         }
         lua_pop(L,2);
         LeaveCriticalSection(&_cs);
@@ -4014,7 +4012,7 @@ void sider_set_team_id(DWORD *dest, TEAM_INFO_STRUCT *team_info, DWORD offset)
             list<module_t*>::iterator i;
             for (i = _modules.begin(); i != _modules.end(); i++) {
                 module_t *m = *i;
-                module_set_teams(m, home, away, _home_team_info, _away_team_info);
+                module_set_teams(m, home, away); //, _home_team_info, _away_team_info);
             }
         }
     }
@@ -4115,6 +4113,8 @@ void sider_context_reset()
     _tournament_id = 0xffff;
     _stadium_choice_count = 0;
     _mi = NULL;
+    _home_team_info = NULL;
+    _away_team_info = NULL;
     logu_("context reset\n");
 }
 
@@ -4250,6 +4250,8 @@ void sider_set_team_for_kits(KIT_STATUS_INFO *ksi, DWORD team_id_encoded, LONGLO
             logu_("sider_set_team_for_kits: home=%d, is_edit_mode=%d\n", decode_team_id(team_id_encoded), ksi->is_edit_mode);
             if (ksi->is_edit_mode) {
                 set_context_field_int("edit_mode_team", decode_team_id(team_id_encoded));
+                // reset context
+                sider_context_reset();
             }
             if (_config->_lua_enabled) {
                 // lua call-backs
@@ -4632,12 +4634,12 @@ static int sider_context_set_kit(lua_State *L)
             return 0;
         }
 
-        // apply changes
         BYTE *radar_color = NULL;
         if (lua_isnumber(L, 4)) {
+            int home_or_away = luaL_checkinteger(L, 4);
+
             // if we are to apply radar, then we need to know: home or away
             if (_mi) {
-                int home_or_away = luaL_checkinteger(L, 4);
                 radar_color = (kit_id == 0) ? _mi->home_shirt1_color1 : _mi->home_shirt2_color1;
                 radar_color += home_or_away * 0x5ec;
             }
@@ -4645,7 +4647,32 @@ static int sider_context_set_kit(lua_State *L)
                 logu_("warning: unable to set radar color - no MATCH_INFO_STRUCT pointer\n");
             }
         }
-        set_kit_info_from_lua_table(L, 3, dst_data, radar_color);
+
+        BYTE *shirt_color = NULL;
+        if (lua_isnumber(L, 5)) {
+            int home_or_away = luaL_checkinteger(L, 5);
+
+            // also apply shirt colors, because they control radar
+            // in non-exhibition games, and are important for color-matching of kits
+            // during initial kit selection
+            TEAM_INFO_STRUCT *ti = (home_or_away == 0) ? _home_team_info : _away_team_info;
+            if (ti && decode_team_id(ti->team_id_encoded) == team_id) {
+                SHIRTCOLOR_STRUCT *scs = NULL;
+                if (kit_id < 2) {
+                    scs = &(ti->players[kit_id]);
+                }
+                else {
+                    scs = &(ti->extra_players[kit_id-2]);
+                }
+
+                shirt_color = scs->color1;
+            }
+            else {
+                logu_("warning: unable to set shirt colors - team_id mismatch or team-info unknown\n");
+            }
+        }
+
+        set_kit_info_from_lua_table(L, 3, dst_data, radar_color, shirt_color);
     }
     lua_pop(L, lua_gettop(L));
     return 0;
@@ -4665,12 +4692,13 @@ static int sider_context_set_gk_kit(lua_State *L)
             return 0;
         }
 
-        set_kit_info_from_lua_table(L, 2, dst_data, NULL);
+        set_kit_info_from_lua_table(L, 2, dst_data, NULL, NULL);
     }
     lua_pop(L, lua_gettop(L));
     return 0;
 }
 
+/**
 static int sider_context_get_shirt_colors(lua_State *L)
 {
     if (!lua_isuserdata(L, 1)) {
@@ -4763,6 +4791,7 @@ static int sider_context_set_shirt_colors(lua_State *L)
     lua_pop(L, lua_gettop(L));
     return 0;
 }
+**/
 
 static int sider_context_refresh_kit(lua_State *L)
 {
@@ -5057,10 +5086,10 @@ static void push_context_table(lua_State *L)
     lua_setfield(L, -2, "set");
     lua_pushcfunction(L, sider_context_set_gk_kit);
     lua_setfield(L, -2, "set_gk");
-    lua_pushcfunction(L, sider_context_set_shirt_colors);
-    lua_setfield(L, -2, "set_shirt_colors");
-    lua_pushcfunction(L, sider_context_get_shirt_colors);
-    lua_setfield(L, -2, "get_shirt_colors");
+    //lua_pushcfunction(L, sider_context_set_shirt_colors);
+    //lua_setfield(L, -2, "set_shirt_colors");
+    //lua_pushcfunction(L, sider_context_get_shirt_colors);
+    //lua_setfield(L, -2, "get_shirt_colors");
     lua_pushcfunction(L, sider_context_refresh_kit);
     lua_setfield(L, -2, "refresh");
     lua_setfield(L, -2, "kits");

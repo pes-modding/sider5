@@ -2094,12 +2094,12 @@ bool module_set_kits(module_t *m, MATCH_INFO_STRUCT *mi)
         }
         if (lua_istable(L, -2)) {
             // home table
-            BYTE *radar_color = (home_kit_id == 0) ? _mi->home.players[0].color1 : _mi->home.players[1].color1;
+            BYTE *radar_color = (home_kit_id < 2) ? _mi->home.players[home_kit_id].color1 : _mi->home.extra_players[home_kit_id-2].color1;
             set_kit_info_from_lua_table(L, -2, home_ki, radar_color, NULL);
         }
         if (lua_istable(L, -1)) {
             // away table
-            BYTE *radar_color = (away_kit_id == 0) ? _mi->away.players[0].color1 : _mi->away.players[1].color1;
+            BYTE *radar_color = (away_kit_id < 2) ? _mi->away.players[away_kit_id].color1 : _mi->away.extra_players[away_kit_id-2].color1;
             set_kit_info_from_lua_table(L, -1, away_ki, radar_color, NULL);
         }
         lua_pop(L,2);
@@ -4616,22 +4616,19 @@ static int sider_context_set_kit(lua_State *L)
         }
 
         BYTE *radar_color = NULL;
+        BYTE *shirt_color = NULL;
+
         if (lua_isnumber(L, 4)) {
             int home_or_away = luaL_checkinteger(L, 4);
 
             // if we are to apply radar, then we need to know: home or away
             if (_mi) {
-                radar_color = (kit_id == 0) ? _mi->home.players[0].color1 : _mi->home.players[1].color1;
-                radar_color += home_or_away * 0x5ec;
+                TEAM_INFO_STRUCT *ti = (home_or_away == 0) ? &(_mi->home) : &(_mi->away);
+                radar_color = (kit_id < 2) ? ti->players[kit_id].color1 : ti->extra_players[kit_id-2].color1;
             }
             else {
                 logu_("warning: unable to set radar color - no MATCH_INFO_STRUCT pointer\n");
             }
-        }
-
-        BYTE *shirt_color = NULL;
-        if (lua_isnumber(L, 5)) {
-            int home_or_away = luaL_checkinteger(L, 5);
 
             // also apply shirt colors, because they control radar
             // in non-exhibition games, and are important for color-matching of kits

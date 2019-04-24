@@ -130,6 +130,25 @@ struct STAD_STRUCT {
     DWORD season;
 };
 
+struct SHIRTCOLOR_STRUCT {
+    BYTE index;
+    BYTE unknown1;
+    BYTE color1[3];
+    BYTE color2[3];
+};
+
+struct TEAM_INFO_STRUCT {
+    DWORD team_id_encoded;
+    BYTE team_name[0x46];
+    BYTE team_abbr[4];
+    BYTE unknown1[2];
+    BYTE unknown2[0x538];
+    SHIRTCOLOR_STRUCT players[2];
+    SHIRTCOLOR_STRUCT goalkeepers[1];
+    SHIRTCOLOR_STRUCT extra_players[7];
+    BYTE unknown3[0x14];
+};
+
 struct MATCH_INFO_STRUCT {
     DWORD dw0;
     DWORD dw1;
@@ -153,46 +172,8 @@ struct MATCH_INFO_STRUCT {
     struct STAD_STRUCT stad;
     DWORD unknown8;
     BYTE unknown9[0x98];
-    DWORD home_team_encoded;
-    BYTE home_team_name[0x46];
-    BYTE home_team_abbr[4];
-    BYTE unknown10[2];
-    BYTE unknown11[0x53a];
-    BYTE home_shirt1_color1[3];
-    BYTE home_shirt1_color2[3];
-    BYTE unknown13[2];
-    BYTE home_shirt2_color1[3];
-    BYTE home_shirt2_color2[3];
-    BYTE unknown14[0x54];
-    DWORD away_team_encoded;
-    BYTE away_team_name[0x46];
-    BYTE away_team_abbr[4];
-    BYTE unknown15[2];
-    BYTE unknown16[0x53a];
-    BYTE away_shirt1_color1[3];
-    BYTE away_shirt1_color2[3];
-    BYTE unknown18[2];
-    BYTE away_shirt2_color1[3];
-    BYTE away_shirt2_color2[3];
-    BYTE unknown19[0x54];
-};
-
-struct SHIRTCOLOR_STRUCT {
-    BYTE index;
-    BYTE unknown1;
-    BYTE color1[3];
-    BYTE color2[3];
-};
-
-struct TEAM_INFO_STRUCT {
-    DWORD team_id_encoded;
-    BYTE team_name[0x46];
-    BYTE team_abbr[4];
-    BYTE unknown10[2];
-    BYTE unknown11[0x538];
-    SHIRTCOLOR_STRUCT players[2];
-    SHIRTCOLOR_STRUCT goalkeepers[1];
-    SHIRTCOLOR_STRUCT extra_players[7];
+    TEAM_INFO_STRUCT home;
+    TEAM_INFO_STRUCT away;
 };
 
 struct STAD_INFO_STRUCT {
@@ -2113,12 +2094,12 @@ bool module_set_kits(module_t *m, MATCH_INFO_STRUCT *mi)
         }
         if (lua_istable(L, -2)) {
             // home table
-            BYTE *radar_color = (home_kit_id == 0) ? _mi->home_shirt1_color1 : _mi->home_shirt2_color1;
+            BYTE *radar_color = (home_kit_id == 0) ? _mi->home.players[0].color1 : _mi->home.players[1].color1;
             set_kit_info_from_lua_table(L, -2, home_ki, radar_color, NULL);
         }
         if (lua_istable(L, -1)) {
             // away table
-            BYTE *radar_color = (away_kit_id == 0) ? _mi->away_shirt1_color1 : _mi->away_shirt2_color1;
+            BYTE *radar_color = (away_kit_id == 0) ? _mi->away.players[0].color1 : _mi->away.players[1].color1;
             set_kit_info_from_lua_table(L, -1, away_ki, radar_color, NULL);
         }
         lua_pop(L,2);
@@ -4489,7 +4470,7 @@ void hook_call_rdx_with_head_and_tail_and_moved_call(BYTE *loc, BYTE *p, BYTE *h
 
 static int get_team_id(MATCH_INFO_STRUCT *mi, int home_or_away)
 {
-    DWORD id_encoded = (home_or_away == 0) ? mi->home_team_encoded : mi->away_team_encoded;
+    DWORD id_encoded = (home_or_away == 0) ? mi->home.team_id_encoded : mi->away.team_id_encoded;
     return decode_team_id(id_encoded);
 }
 
@@ -4640,7 +4621,7 @@ static int sider_context_set_kit(lua_State *L)
 
             // if we are to apply radar, then we need to know: home or away
             if (_mi) {
-                radar_color = (kit_id == 0) ? _mi->home_shirt1_color1 : _mi->home_shirt2_color1;
+                radar_color = (kit_id == 0) ? _mi->home.players[0].color1 : _mi->home.players[1].color1;
                 radar_color += home_or_away * 0x5ec;
             }
             else {
@@ -5783,7 +5764,12 @@ DWORD install_func(LPVOID thread_param) {
                 BYTE *p = check_hint(base, h->Misc.VirtualSize,
                     frag[j], frag_len[j], hint);
                 if (p) {
-                    log_(L"Found pattern (hint match) %i of %i\n", j+1, NUM_PATTERNS);
+                    if (_variations[j]!=0xff) {
+                        log_(L"Found pattern (hint match) %i (%i) of %i\n", j+1, _variations[j]+1, NUM_PATTERNS);
+                    }
+                    else {
+                        log_(L"Found pattern (hint match) %i of %i\n", j+1, NUM_PATTERNS);
+                    }
                     *(addrs[j]) = p + offs[j];
                 }
             }

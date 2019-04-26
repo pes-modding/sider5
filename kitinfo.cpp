@@ -125,7 +125,7 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst, BYTE *radar
     NameY=15       ; 0 to 17
     NameSize=15       ; 0 to 31
     BackNumberY=21       ; 0 to 29
-    BackNumberSize=13       ; 0 to 14
+    BackNumberSize=26       ; 0 to 31
     BackNumberSpacing=1       ; 0 to 3
     **/
     lua_getfield(L, index, "Name");
@@ -155,7 +155,7 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst, BYTE *radar
     lua_pop(L, 1);
     lua_getfield(L, index, "BackNumberSize");
     if (lua_isnumber(L, -1)) {
-        set_word_bits(dst+0x18, luaL_checkinteger(L, -1), 6, 10);
+        set_word_bits(dst+0x18, luaL_checkinteger(L, -1), 5, 10);
     }
     lua_pop(L, 1);
     lua_getfield(L, index, "BackNumberSpacing");
@@ -468,7 +468,7 @@ void get_kit_info_to_lua_table(lua_State *L, int index, BYTE *src) {
     NameY=15       ; 0 to 17
     NameSize=15       ; 0 to 31
     BackNumberY=21       ; 0 to 29
-    BackNumberSize=13       ; 0 to 14
+    BackNumberSize=26      ; 0 to 31
     BackNumberSpacing=1       ; 0 to 3
     **/
     lua_pushinteger(L, get_word_bits(src+0x1e, 0, 1));
@@ -481,7 +481,7 @@ void get_kit_info_to_lua_table(lua_State *L, int index, BYTE *src) {
     lua_setfield(L, index, "NameSize");
     lua_pushinteger(L, get_word_bits(src+0x18, 0, 5));
     lua_setfield(L, index, "BackNumberY");
-    lua_pushinteger(L, get_word_bits(src+0x18, 6, 10));
+    lua_pushinteger(L, get_word_bits(src+0x18, 5, 10));
     lua_setfield(L, index, "BackNumberSize");
     lua_pushinteger(L, get_word_bits(src+0x18, 12, 14));
     lua_setfield(L, index, "BackNumberSpacing");

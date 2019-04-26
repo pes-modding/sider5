@@ -216,7 +216,7 @@ void set_kit_info_from_lua_table(lua_State *L, int index, BYTE *dst, BYTE *radar
     lua_pop(L, 1);
     lua_getfield(L, index, "ShortsNumberSize");
     if (lua_isnumber(L, -1)) {
-        set_word_bits(dst+0x16, luaL_checkinteger(L, -1), 11, 15);
+        set_word_bits(dst+0x16, luaL_checkinteger(L, -1), 10, 15);
     }
     lua_pop(L, 1);
 
@@ -515,7 +515,7 @@ void get_kit_info_to_lua_table(lua_State *L, int index, BYTE *src) {
     lua_setfield(L, index, "ShortsNumberX");
     lua_pushinteger(L, get_word_bits(src+0x16, 0, 4));
     lua_setfield(L, index, "ShortsNumberY");
-    lua_pushinteger(L, get_word_bits(src+0x16, 11, 15));
+    lua_pushinteger(L, get_word_bits(src+0x16, 10, 15));
     lua_setfield(L, index, "ShortsNumberSize");
 
     /**

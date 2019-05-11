@@ -2,6 +2,14 @@ Sider 5 Release History
 =======================
 
 
+May 11, 2019
+v5.2.4
+- UTF-8 changes: now using standard Windows API for faster, more stable
+  conversions between utf-8 and wide-char encodings.
+- new Lua events: "livecpk_data_ready" and "key_up"
+- startup cache: the game now starts much faster
+
+
 April 4, 2019
 v5.2.3
 - support for 1.05.00 game exe

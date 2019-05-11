@@ -244,7 +244,7 @@ loading a 2nd player kit instead of a 1st goalkeeper kit, so your
 goalkeepers end up wearing 2nd kit of outfield players.
 
 
-- Event name: "livecpk_read"
+- Event name: "livecpk_data_ready"
 Handler function: f(ctx, filename, data, size, total_size, offset)
 Return value: nil.
 
@@ -258,22 +258,15 @@ provide the additional context for the read:
         eventually for this file
     - offset: offset in file before the read happened
 
-See "filedump.lua" and "tracer.lua" modules for example usage of
-this event. This is an advanced feature, which you will need if
-you wanted to examine the data that the game is about to use.
-Care must be taken to not leak memory. Also, be aware that some
-large files are not read all-at-once, but instead in multiple
-read operations. In such situation, use "offset" and "total_size"
-parameters to check if the file has been fully read, like this:
-
-    if offset + size >= total_size then
-        -- last read: we now got all of the data
-        -- do something with it
-        ...
-    end
-
-See "filedump.lua" for complete example of handling both
-multi-read and single-read files.
+See "filedump.lua", "tracer.lua" and "facedump.lua" modules for
+example usage of this event. This is an advanced feature, which you
+will need if you wanted to examine the data that the game is about
+to use. Care must be taken to not leak memory. Also, be aware that some
+large files are not read all-at-once. For instance, music from
+BGM.awb is accessed in small chunks - typically 0x8000 bytes in size,
+which is enough for continuous playback of the song. In such situation,
+you can use "offset" and "total_size" parameters to check what part
+of the file was read.
 
 
 - Event name: "set_teams"
@@ -476,6 +469,20 @@ Your function can that take appropriate action, if it wants to react to
 such key events. A combination of "overlay_on" and "key_down" events can
 be used to build simple UIs in the overlay itself.
 See example of such UI in camera.lua
+
+
+-- Event name: "key_up"
+Handler function: f(ctx, vkey)
+Return value expected: nil
+
+When the overlay is on, and the current Lua module is in control of the
+overlay, this event fires when user releases a key on the keyboard. The
+so-called "virtual key code" will be passed as the value of "vkey" parameter.
+Your function can that take appropriate action, if it wants to react to
+such key events. (Typically, you would want to handle this event, if your
+module needs to avoid the standard "autorepeat" mechanism, where the
+operating system repeats "key_down" events when the key is held down.
+For "key_up" there is no autorepeat.)
 
 
 -- Event name: "gamepad_input"

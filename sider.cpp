@@ -2377,7 +2377,7 @@ void module_read(module_t *m, const char *file_name, void *data, LONGLONG len, F
     LeaveCriticalSection(&_cs);
 }
 
-void module_data_ready(module_t *m, const char *file_name, void *data, LONGLONG len)
+void module_data_ready(module_t *m, const char *file_name, void *data, LONGLONG len, LONGLONG total_size, LONGLONG offset)
 {
     EnterCriticalSection(&_cs);
     lua_pushvalue(m->L, m->evt_lcpk_data_ready);
@@ -2387,7 +2387,9 @@ void module_data_ready(module_t *m, const char *file_name, void *data, LONGLONG 
     lua_pushstring(L, file_name);
     lua_pushlightuserdata(L, data);
     lua_pushinteger(L, len);
-    if (lua_pcall(L, 4, 0, 0) != LUA_OK) {
+    lua_pushinteger(L, total_size);
+    lua_pushinteger(L, offset);
+    if (lua_pcall(L, 6, 0, 0) != LUA_OK) {
         const char *err = luaL_checkstring(L, -1);
         logu_("[%d] lua ERROR: %s\n", GetCurrentThreadId(), err);
         lua_pop(L, 1);
@@ -4189,8 +4191,10 @@ DWORD sider_data_ready(FILE_LOAD_INFO *fli)
         DBG(1024) logu_("sider_data_ready:: WARN: filename is NULL\n");
         return 0;
     }
-    DBG(1024) logu_("sider_data_ready:: {%s}, buffer=%p, size=0x%x, total=0x%x, sofar=0x%x, type=%d\n",
-        filename, fli->buffer, fli->filesize, fli->total_bytes_to_read, fli->bytes_read_so_far, fli->type);
+    LONGLONG base_offset_in_cpk  = *(LONGLONG*)((BYTE*)fli +  0x168);
+    LONGLONG offs = fli->offset_in_cpk - base_offset_in_cpk;
+    DBG(1024) logu_("sider_data_ready:: {%s}, buffer=%p, size=0x%x, total=0x%x, sofar=0x%x, bsize=0x%x, offs=0x%x, type=%d\n",
+        filename, fli->buffer, fli->filesize, fli->total_bytes_to_read, fli->bytes_read_so_far, fli->buffer_size, offs, fli->type);
 
     if (fli->type == 7) { // completely read and CRI-unpacked
         // livecpk_data_ready
@@ -4199,7 +4203,7 @@ DWORD sider_data_ready(FILE_LOAD_INFO *fli)
             for (i = _modules.begin(); i != _modules.end(); i++) {
                 module_t *m = *i;
                 if (m->evt_lcpk_data_ready != 0) {
-                    module_data_ready(m, filename, fli->buffer, fli->filesize);
+                    module_data_ready(m, filename, fli->buffer, fli->buffer_size, fli->filesize, offs);
                 }
             }
         }
@@ -5049,6 +5053,7 @@ static void push_context_table(lua_State *L)
     lua_pushcfunction(L, sider_context_register);
     lua_setfield(L, -2, "register");
 
+    /**** disabling temporarily for 5.2.4 release
     lua_newtable(L);
     lua_pushcfunction(L, sider_context_get_current_team_id);
     lua_setfield(L, -2, "get_current_team");
@@ -5071,6 +5076,7 @@ static void push_context_table(lua_State *L)
     lua_pushcfunction(L, sider_context_refresh_kit);
     lua_setfield(L, -2, "refresh");
     lua_setfield(L, -2, "kits");
+    ****/
 }
 
 static void push_env_table(lua_State *L, const wchar_t *script_name)
@@ -5937,6 +5943,7 @@ bool hook_if_all_found() {
             log_(L"sider_def_stadium_name: %p\n", sider_def_stadium_name_hk);
             log_(L"sider_set_stadium_choice: %p\n", sider_set_stadium_choice_hk);
             log_(L"sider_check_kit_choice: %p\n", sider_check_kit_choice_hk);
+            log_(L"sider_data_ready: %p\n", sider_data_ready_hk);
 
             if (_config->_hook_set_team_id) {
                 BYTE *check_addr = _config->_hp_at_set_team_id - offs_set_team_id + offs_check_set_team_id;
@@ -5975,15 +5982,18 @@ bool hook_if_all_found() {
             hook_call_with_head_and_tail(_config->_hp_at_set_stadium_choice, (BYTE*)sider_set_stadium_choice_hk,
                 (BYTE*)pattern_set_stadium_choice_head, sizeof(pattern_set_stadium_choice_head)-1,
                 (BYTE*)pattern_set_stadium_choice_tail, sizeof(pattern_set_stadium_choice_tail)-1);
+            hook_jmp(_config->_hp_at_data_ready, (BYTE*)sider_data_ready_hk, 0);
+
+            /**** disabling temporarily for 5.2.4 release
             hook_call(_config->_hp_at_check_kit_choice, (BYTE*)sider_check_kit_choice_hk, 0);
 
             _uniparam_base = get_target_location2(_config->_hp_at_get_uniparam);
 
-            hook_jmp(_config->_hp_at_data_ready, (BYTE*)sider_data_ready_hk, 0);
             hook_call_rdx(_config->_hp_at_kit_status, (BYTE*)sider_kit_status_hk, 2);
 
             hook_call_rcx(_config->_hp_at_set_team_for_kits, (BYTE*)sider_set_team_for_kits_hk, 2);
             hook_call(_config->_hp_at_clear_team_for_kits, (BYTE*)sider_clear_team_for_kits_hk, 1);
+            ****/
 
             BYTE *old_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_old;
             BYTE *new_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_new;

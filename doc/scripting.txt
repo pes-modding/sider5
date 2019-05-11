@@ -249,13 +249,12 @@ Handler function: f(ctx, filename, data, size, total_size, offset)
 Return value: nil.
 
 Provides a pointer to the buffer in memory ("data") that have just
-been filled with data. The "size" parameter gives the number of
-bytes that have just been read into that buffer. The other parameters
-provide the additional context for the read:
+been filled with data. The "size" parameter provides the buffer length
+in bytes. Other parameters provide the additional context for the read:
+
     - filename: the relative pathname of the file,
         (For example, "common\pesdb\etc\Team.bin")
-    - total_size: total size (in bytes) expected to be read
-        eventually for this file
+    - total_size: total size (in bytes) of the file
     - offset: offset in file before the read happened
 
 See "filedump.lua", "tracer.lua" and "facedump.lua" modules for
@@ -267,6 +266,42 @@ BGM.awb is accessed in small chunks - typically 0x8000 bytes in size,
 which is enough for continuous playback of the song. In such situation,
 you can use "offset" and "total_size" parameters to check what part
 of the file was read.
+
+
+- Event name: "livecpk_read"
+Handler function: f(ctx, filename, data, size, total_size, offset)
+Return value: nil.
+
+This event is similar to livecpk_data_ready, but it happens on a lower
+level of logic: when the actual read operations occur. It is still
+supported for backwards compatibility, but in practice you will
+probably never need to use it (unless you are interested in tracing
+the actual reads). Instead, read about "livecpk_data_ready" - this
+is probably what you actually want :-)
+
+If you do use "livecpk_read" event, be aware that it happends BEFORE
+the data is fully ready for processing by the game. For example, if
+data is read from a CPK file with compression enabled, then you will
+see the bytes as they are stored in CPK, but not decompressed yet.
+So instead of actual data you will see a compressed stream with a
+"CRILAYLA" header.
+
+Multiple reads can be used for the same file, if it is bigger
+than certain size, or the game logic reads it in parts.
+
+The "data" param is a pointer to the buffer in memory that have just
+been filled with data. The "size" parameter gives the number of
+bytes that have just been read into that buffer. The other parameters
+provide the additional context for the read:
+
+    - filename: the relative pathname of the file,
+        (For example, "common\pesdb\etc\Team.bin")
+    - total_size: total size (in bytes) expected to be read
+        eventually for this file
+    - offset: offset in file before the read happened
+
+See "rtracer.lua" module for an example usage of
+this event.
 
 
 - Event name: "set_teams"

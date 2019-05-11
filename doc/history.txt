@@ -3,7 +3,7 @@ Sider 5 Release History
 
 
 May 11, 2019
-v5.2.4
+v5.3.0
 - UTF-8 changes: now using standard Windows API for faster, more stable
   conversions between utf-8 and wide-char encodings.
 - new Lua events: "livecpk_data_ready" and "key_up"

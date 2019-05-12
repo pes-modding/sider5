@@ -300,7 +300,7 @@ provide the additional context for the read:
         eventually for this file
     - offset: offset in file before the read happened
 
-See "rtracer.lua" module for an example usage of
+See "fileevents.lua" module for an example usage of
 this event.
 
 

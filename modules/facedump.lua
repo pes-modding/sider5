@@ -1,5 +1,12 @@
--- Example of simple "content-extractor": saves all files that belong to chosen faces to disk
--- requires LuaJIT ffi. (To enable that add this setting to sider.ini: luajit.ext.enabled = 1)
+--[[
+
+Example of simple "content-extractor": saves all files that belong to chosen faces to disk.
+This module automatically creates directory structure for files that are saved, which requires
+LuaJIT ffi module to be available. To enable it make sure to have this setting to your sider.ini:
+
+luajit.ext.enabled = 1
+
+--]]
 
 local m = {}
 ffi.cdef[[
@@ -33,7 +40,7 @@ local function create_dirs_for(pathname)
     end
 end
 
-function m.data_ready(ctx, filename, addr, len)
+function m.data_ready(ctx, filename, addr, len, total_size, offset)
     for i,pattern in ipairs(patterns) do
         if string.match(filename, pattern) then
             -- try opening the file

@@ -2,7 +2,7 @@
 
 local m = {}
 
-function m.data_ready(ctx, filename, addr, len)
+function m.data_ready(ctx, filename, addr, len, total_size, offset)
     if filename == "shaders\\dx11\\GrModelShaders_dx11.fsop" then
         -- addr is actually a pointer to data in memory, so if we want
         -- to use this data later, we need to make a copy of it now:

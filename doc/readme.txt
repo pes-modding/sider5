@@ -232,6 +232,7 @@ Game research: nesa24, juce, digitalfoxx
 Programming: juce
 Alpha testing: zlac, nesa24, Chuny, Hawke, sonofsam69
 Blue Champions League ball: Hawke and digitalfoxx
+Trophies: MJTS-140914
 
 Sider uses the following 3rd-party software:
 1) LuaJIT by Mike Pall (doc/license-luajit.txt)

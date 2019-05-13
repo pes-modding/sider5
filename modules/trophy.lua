@@ -1,6 +1,6 @@
 --[[
 ==================================
-trophy.lua - version 1.1
+trophy.lua - version 1.2
 
 programming by: juce
 using save data files by: saintric
@@ -28,30 +28,28 @@ All game modes are supported: League, Cup, Master League.
 
 --]]
 
-local m = { version = "1.1" }
+local m = { version = "1.2" }
 
 local content_root = ".\\content\\trophy-server"
 local tcontent = nil
+local remap = {}
+local info = ""
 
--- add more entries to this "remap" table
--- for other tournaments, where you want to have trophies.
---
--- IMPORTANT: You must remap cups to cups and leagues to leagues,
--- otherwise the game gets confused. For example, English Premier League (17)
--- can be remapped to French League (20), and then the trophy ceremony will
--- be correctly displayed after the last league match (if you win it :-))
---
--- DO NOT remap cups to leagues or leagues to cups - that will not work well.
---
--- For reference, use doc/tournaments.txt provided with sider:
--- It has tournament ids for all tournaments in the game.
-
-local remap = {
-    [86] =  { 43, "eng_community_shield" },
-    [17] =  { 20, "eng_premier_league" },
-    [18] =  { 20, "ita_serie_a" },
-    [116] = { 21, "rus_premier_league" },
-}
+function load_map(filename)
+    local map = {}
+    for line in io.lines(filename) do
+        -- strip comment
+        line = string.gsub(line, "#.*", "")
+        tid, tid2, path = string.match(line, "%s*(%d+)%s*,%s*(%d+)%s*,%s*[\"]?([^\"]*)")
+        tid = tonumber(tid)
+        tid2 = tonumber(tid2)
+        if tid and tid2 and path then
+            map[tid] = { tid2, path }
+            log(string.format("tid: %d ==> tid: %d, content path: %s", tid, tid2, path))
+        end
+    end
+    return map
+end
 
 function m.trophy_rewrite(ctx, tournament_id)
     tcontent = nil
@@ -68,6 +66,7 @@ function m.trophy_rewrite(ctx, tournament_id)
 end
 
 function m.make_key(ctx, filename)
+    --log(string.format("wants: %s", filename))
     if tcontent then
         return tcontent .. filename
     end
@@ -79,13 +78,28 @@ function m.get_filepath(ctx, filename, key)
     end
 end
 
+function m.overlay_on(ctx)
+    return string.format("version %s\nControls: [0] - to reload map\n%s", m.version, info)
+end
+
+function m.key_down(ctx, vkey)
+    if vkey == 0x30 then
+        log("Reloading map.txt ...")
+        remap = load_map(content_root .. "\\map.txt")
+        info = info .. "\nmap reloaded"
+    end
+end
+
 function m.init(ctx)
     if content_root:sub(1,1) == "." then
         content_root = ctx.sider_dir .. content_root
     end
+    remap = load_map(content_root .. "\\map.txt")
     ctx.register("trophy_rewrite", m.trophy_rewrite)
     ctx.register("livecpk_make_key", m.make_key)
     ctx.register("livecpk_get_filepath", m.get_filepath)
+    ctx.register("overlay_on", m.overlay_on)
+    ctx.register("key_down", m.key_down)
     log("trophy server: version " .. m.version)
 end
 

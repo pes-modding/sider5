@@ -8,6 +8,7 @@ v5.3.0
   conversions between utf-8 and wide-char encodings.
 - new Lua events: "livecpk_data_ready" and "key_up"
 - startup cache: the game now starts much faster
+- updated trophy-server (trophy.lua)
 
 
 April 4, 2019

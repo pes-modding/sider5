@@ -15,6 +15,7 @@
 #include "common.h"
 #include "patterns.h"
 #include "memlib.h"
+#include "kmp.h"
 #include "libz.h"
 #include "kitinfo.h"
 
@@ -930,6 +931,7 @@ public:
     bool _livecpk_enabled;
     bool _lookup_cache_enabled;
     bool _lua_enabled;
+    bool _jit_enabled;
     bool _luajit_extensions_enabled;
     list<wstring> _lua_extra_globals;
     int _lua_gc_opt;
@@ -998,6 +1000,7 @@ public:
                  _livecpk_enabled(false),
                  _lookup_cache_enabled(true),
                  _lua_enabled(true),
+                 _jit_enabled(true),
                  _luajit_extensions_enabled(false),
                  _lua_gc_opt(LUA_GCSTEP),
                  _close_sider_on_exit(false),
@@ -1252,6 +1255,10 @@ public:
 
         _lua_enabled = GetPrivateProfileInt(_section_name.c_str(),
             L"lua.enabled", _lua_enabled,
+            config_ini);
+
+        _jit_enabled = GetPrivateProfileInt(_section_name.c_str(),
+            L"jit.enabled", _jit_enabled,
             config_ini);
 
         _luajit_extensions_enabled = GetPrivateProfileInt(_section_name.c_str(),
@@ -5053,7 +5060,6 @@ static void push_context_table(lua_State *L)
     lua_pushcfunction(L, sider_context_register);
     lua_setfield(L, -2, "register");
 
-    /**** disabling temporarily for 5.2.4 release
     lua_newtable(L);
     lua_pushcfunction(L, sider_context_get_current_team_id);
     lua_setfield(L, -2, "get_current_team");
@@ -5076,7 +5082,6 @@ static void push_context_table(lua_State *L)
     lua_pushcfunction(L, sider_context_refresh_kit);
     lua_setfield(L, -2, "refresh");
     lua_setfield(L, -2, "kits");
-    ****/
 }
 
 static void push_env_table(lua_State *L, const wchar_t *script_name)
@@ -5085,7 +5090,7 @@ static void push_env_table(lua_State *L, const wchar_t *script_name)
         "assert", "table", "pairs", "ipairs",
         "string", "math", "tonumber", "tostring",
         "unpack", "error", "_VERSION", "type", "io",
-        "collectgarbage",
+        "collectgarbage", "jit",
     };
 
     lua_newtable(L);
@@ -5155,6 +5160,18 @@ static void push_env_table(lua_State *L, const wchar_t *script_name)
     lua_pushvalue(L, -1);
     lua_setfield(L, -2, "_G");
 
+    // turn off JIT, if disabled
+    if (!_config->_jit_enabled) {
+        lua_getglobal(L, "jit");
+        lua_getfield(L, -1, "off");
+        if (lua_pcall(L, 0, 0, 0) != 0) {
+            const char *err = luaL_checkstring(L, -1);
+            logu_("Problem turning off Just-In-Time compiler: %s\n", err);
+            lua_pop(L, 1);
+        }
+        lua_pop(L, 1);
+    }
+
     // load some LuaJIT extenstions
     if (_config->_luajit_extensions_enabled) {
         char *ext[] = { "ffi", "bit" };
@@ -5175,6 +5192,32 @@ static void push_env_table(lua_State *L, const wchar_t *script_name)
     }
 }
 
+static const void *luaL_checkcdata(lua_State *L, int narg)
+{
+    if (lua_type(L, narg) != 10) {
+        luaL_typerror(L, narg, "cdata");
+    }
+    return lua_topointer(L, narg);
+}
+
+static int sider_kmp_search(lua_State *L) {
+    size_t pattern_len;
+    const char *pattern = luaL_checklstring(L, 1, &pattern_len);
+    const char *frm = *(const char**)luaL_checkcdata(L, 2);
+    const char *to = *(const char**)luaL_checkcdata(L, 3);
+    //logu_("sider_kmp_search: pattern=%p, pattern_len=%d, frm=%p, to=%p\n", pattern, pattern_len, frm, to);
+    const char *res = kmp_search(pattern, pattern_len, frm, to);
+    //logu_("sider_kmp_search: res=%p\n", res);
+    lua_pop(L, lua_gettop(L));
+    if (res) {
+        lua_pushlightuserdata(L, (void*)res);
+    }
+    else {
+        lua_pushnil(L);
+    }
+    return 1;
+}
+
 void init_lua_support()
 {
     if (_config->_lua_enabled) {
@@ -5190,6 +5233,13 @@ void init_lua_support()
 
         // memory library
         init_memlib(L);
+
+        // kmp_search function
+        lua_pushcfunction(L, sider_kmp_search);
+        lua_setglobal(L, "sider_kmp_search");
+
+        // jit library
+        //luaopen_jit(L);
 
         // load registered modules
         for (list<wstring>::iterator it = _config->_module_names.begin();
@@ -5542,6 +5592,7 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"lookup-cache.enabled = %d\n", _config->_lookup_cache_enabled);
     log_(L"lua.enabled = %d\n", _config->_lua_enabled);
     log_(L"lua.gc.opt = %s\n", (_config->_lua_gc_opt == LUA_GCSTEP)? L"step" : L"collect");
+    log_(L"jit.enabled = %d\n", _config->_jit_enabled);
     log_(L"luajit.ext.enabled = %d\n", _config->_luajit_extensions_enabled);
     //log_(L"address-cache.enabled = %d\n", (int)(!_config->_ac_off));
     log_(L"key-cache.ttl-sec = %d\n", _config->_key_cache_ttl_sec);
@@ -5984,7 +6035,6 @@ bool hook_if_all_found() {
                 (BYTE*)pattern_set_stadium_choice_tail, sizeof(pattern_set_stadium_choice_tail)-1);
             hook_jmp(_config->_hp_at_data_ready, (BYTE*)sider_data_ready_hk, 0);
 
-            /**** disabling temporarily for 5.2.4 release
             hook_call(_config->_hp_at_check_kit_choice, (BYTE*)sider_check_kit_choice_hk, 0);
 
             _uniparam_base = get_target_location2(_config->_hp_at_get_uniparam);
@@ -5993,7 +6043,6 @@ bool hook_if_all_found() {
 
             hook_call_rcx(_config->_hp_at_set_team_for_kits, (BYTE*)sider_set_team_for_kits_hk, 2);
             hook_call(_config->_hp_at_clear_team_for_kits, (BYTE*)sider_clear_team_for_kits_hk, 1);
-            ****/
 
             BYTE *old_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_old;
             BYTE *new_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_new;

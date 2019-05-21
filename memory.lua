@@ -80,15 +80,9 @@ local PAGE_EXECUTE_WRITECOPY = 0x80
 function m.search(s, from, to)
     local p = ffi.cast('char*', from)
     local q = ffi.cast('char*', to)
-    local cs = ffi.cast('char*', s)
-    local range = to - from
-    local slen = #s
-    local start = p
-    while p < q do
-        if C.memcmp(p, cs, slen) == 0 then
-            return p
-        end
-        p = p+1
+    local res = sider_kmp_search(s, p, q)
+    if res then
+        return ffi.cast('char*', res)
     end
 end
 

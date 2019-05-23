@@ -9,7 +9,7 @@ Requires: sider.dll 5.1.0+ (5.2.1+ for gamepad support)
 --]]
 
 local m = {}
-m.version = "2.0"
+m.version = "2.1"
 local hex = memory.hex
 local settings
 
@@ -233,11 +233,45 @@ function m.gamepad_input(ctx, inputs)
     end
 end
 
+local function find_pattern(ctx, pattern, cache_id)
+    if cache_id then
+        -- check the cached location first: it might match
+        local f = io.open(ctx.sider_dir .. "\\camera.cache", "rb")
+        if f then
+            local cache_data = f:read("*all")
+            local hint = string.sub(cache_data, cache_id*8+1, cache_id*8+8)
+            if hint then
+                local addr = memory.unpack("i64", hint)
+                if addr and addr ~= 0 then
+                    local data = memory.read(addr, #pattern)
+                    if pattern == data then
+                        log(string.format("matched cache hint #%s", cache_id))
+                        return addr
+                    end
+                end
+            end
+        end
+    end
+    -- no cache, or no match: search the process
+    return memory.search_process(pattern)
+end
+
+local function write_cache(ctx, locations)
+    local f = io.open(ctx.sider_dir .. "\\camera.cache", "wb")
+    for i,addr in ipairs(locations) do
+        f:write(memory.pack("i64", addr))
+    end
+    f:close()
+end
+
 function m.init(ctx)
+    local cache = {}
+
     -- find the base address of the block of camera settings
     local pattern = "\x84\xc0\x41\x0f\x45\xfe\xf3\x0f\x10\x5b\x0c"
-    local loc = memory.search_process(pattern)
+    local loc = find_pattern(ctx, pattern, 0)
     if loc then
+        cache[#cache + 1] = loc
         loc = loc + #pattern
         local rel_offset = memory.unpack("i32", memory.read(loc + 3, 4))
         bases.camera = loc + rel_offset + 7
@@ -250,8 +284,9 @@ function m.init(ctx)
 
     -- find replays opcode
     local pattern = "\x41\xc6\x45\x08\x04"
-    local loc = memory.search_process(pattern)
+    local loc = find_pattern(ctx, pattern, 1)
     if loc then
+        cache[#cache + 1] = loc
         bases.replays = loc
         log(string.format("Replays op-code address: %s", hex(bases.replays)))
     else
@@ -265,14 +300,18 @@ function m.init(ctx)
 00000001515ED61E | 0F 29 8D C0 FF FF FF                 | movaps xmmword ptr ss:[rbp-40],xmm1    | store ball cursor coordinates
     --]]
     local pattern = "\x89\xb5\xbc\xff\xff\xff\x0f\x28\xb5\xb0\xff\xff\xff"
-    local loc = memory.search_process(pattern)
+    local loc = find_pattern(ctx, pattern, 2)
     if loc then
+        cache[#cache + 1] = loc
         loc = loc + #pattern
         bases.ball = loc
         log(string.format("Ball cursor op-code address: %s", hex(bases.ball)))
     else
         log("problem: unable to find code pattern for ball cursor read")
     end
+
+    -- save found locations to disk
+    write_cache(ctx, cache)
 
     -- register for events
     ctx.register("set_teams", m.set_teams)

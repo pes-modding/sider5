@@ -2,6 +2,14 @@ Sider 5 Release History
 =======================
 
 
+May 24, 2019
+v5.4.0
+- kit manipulation support : new events and new table of functions
+  availble in context object. This is mainly to support Kitserver module
+- camera.lua : caches its memory lookups now - for faster startup
+- new "jit_enabled" option in sider.ini : to explicitly enable/disable JIT
+
+
 May 11, 2019
 v5.3.0
 - UTF-8 changes: now using standard Windows API for faster, more stable

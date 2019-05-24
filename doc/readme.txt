@@ -1,7 +1,7 @@
 Sider 5 for Pro Evolution Soccer 2019
 =====================================
 Copyright (C) 2018-2019 juce
-Version 5.3.0
+Version 5.4.0
 
 
 
@@ -131,6 +131,13 @@ lua.module = "kitrewrite.lua"
 modules must be in "modules" folder inside the sider root directory.
 
 
+jit.enabled = 1
+
+- Allows to enable/disable JIT (Just-In-Time compiler) for Lua.
+By default, JIT is enabled - to provide performance boost for Lua modules.
+To turn it off, set to 0.
+
+
 lua.gc.opt = "step"
 
 - This option allows to tweak Lua garbage collector (GC) behaviour.
@@ -228,9 +235,9 @@ By default, the game sets its priority to "above_normal".
 
 CREDITS:
 --------
-Game research: nesa24, juce, digitalfoxx
+Game research: nesa24, juce, digitalfoxx, zlac
 Programming: juce
-Alpha testing: zlac, nesa24, Chuny, Hawke, sonofsam69
+Testing: zlac, nesa24, Chuny, Hawke, sonofsam69, Cesc Fabregas
 Blue Champions League ball: Hawke and digitalfoxx
 Trophies: MJTS-140914
 
@@ -238,4 +245,5 @@ Sider uses the following 3rd-party software:
 1) LuaJIT by Mike Pall (doc/license-luajit.txt)
 2) Knuth-Morris-Pratt string matcher from Project Nayuki (doc/license-kmp.txt)
 3) FW1FontWrapper library by Erik Rufelt
+4) zlib by Jean-loup Gailly (compression) and Mark Adler (decompression).
 

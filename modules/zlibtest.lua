@@ -11,7 +11,7 @@ local function hex_dump(data)
             return string.format("%02x ", string.byte(c))
         end)
         local ascii_part = string.gsub(bytes, ".", function(c)
-            if string.byte(c)>=32 and string.byte(c)<128 then
+            if string.byte(c)>=32 and string.byte(c)<127 then
                 return c
             else
                 return '.'

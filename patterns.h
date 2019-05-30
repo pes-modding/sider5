@@ -349,11 +349,11 @@ static BYTE pattern_stadium_name_tail[4] = "\x58\x58\x90";
 000000014D01537C | E8 BF D5 49 F3                       | call pes2019.1404B2940                 |
 000000014D015381 | 48 8B 5C 24 30                       | mov rbx,qword ptr ss:[rsp+30]          |
 */
-static BYTE pattern_def_stadium_name[17] =
-    "\x44\x0f\xb6\x80\xda\x03\x00\x00"
-    "\x44\x39\xc5"
-    "\x75\x3a"
-    "\x48\x89\xc1";
+static BYTE pattern_def_stadium_name[9] = //[17] =
+    "\x44\x0f\xb6\x80\xda\x03\x00\x00";
+    //"\x44\x39\xc5"
+    //"\x75\x3a"
+    //"\x48\x89\xc1";
 static int offs_def_stadium_name = 0x5b;
 static BYTE pattern_def_stadium_name_head[3] = "\x75\x0c";
 static BYTE pattern_def_stadium_name_tail[15] =

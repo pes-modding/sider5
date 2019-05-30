@@ -2,6 +2,11 @@ Sider 5 Release History
 =======================
 
 
+May 30, 2019
+v5.4.1
+- support for 1.06.00 game exe
+
+
 May 24, 2019
 v5.4.0
 - kit manipulation support : new events and new table of functions

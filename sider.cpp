@@ -7,6 +7,7 @@
 #include <time.h>
 #include <list>
 #include <string>
+#include <map>
 #include <unordered_map>
 #include "zlib.h"
 #include "imageutil.h"
@@ -229,6 +230,18 @@ const char *_context_fields[] = {
     "tournament_id", "mis",
 };
 size_t _context_fields_count = sizeof(_context_fields)/sizeof(const char *);
+
+struct uniparam_info_t {
+    BYTE* block;
+    DWORD size;
+    char* name;
+};
+struct uniparam_team_t {
+    bool has_1st;
+    bool has_2nd;
+    bool has_gk1st;
+};
+bool _dummified(false);
 
 typedef unordered_map<string,wstring*> lookup_cache_t;
 lookup_cache_t _lookup_cache;
@@ -591,6 +604,178 @@ static void string_strip_quotes(wstring& s)
     s.erase(0,b);
 }
 
+static void dummify_uniparam(BYTE **uniparam_addr)
+{
+    map<string,uniparam_info_t> uni;
+    map<int,uniparam_team_t> teams;
+
+    BYTE *uniparam = *uniparam_addr;
+
+    char *strips[] = {"1st", "2nd", "GK1st"};
+
+    // read existing data structure
+    DWORD numItems = *(DWORD*)(uniparam);
+    DWORD sec3start = *(DWORD*)(uniparam+4);
+    DWORD sec3end = sec3start + numItems * 0x0c;
+    for (DWORD offs = sec3start; offs != sec3end; offs += 0x0c ) {
+        DWORD cf_starting_offs = *(DWORD*)(uniparam+offs);
+        DWORD cf_len = *(DWORD*)(uniparam+offs+4);
+        DWORD cf_name_starting_offs = *(DWORD*)(uniparam+offs+8);
+
+        char *kit_config_name = strdup((char*)uniparam + cf_name_starting_offs);
+
+        char *first_underscore = strchr(kit_config_name,'_');
+        if (first_underscore) {
+            char *second_underscore = strchr(first_underscore+1,'_');
+            *first_underscore = ' '; // replace with space for easy scanf
+
+            int team_id = 0;
+            if (sscanf(kit_config_name,"%d",&team_id)==1) {
+                logu_("processing kit for team %d:: %s\n", team_id, (char*)uniparam + cf_name_starting_offs);
+            }
+            else {
+                logu_("processing kit :: %s\n", (char*)uniparam + cf_name_starting_offs);
+                team_id = 0x10000000; // fake id: for referees
+            }
+
+            uniparam_info_t entry;
+            entry.block = uniparam + cf_starting_offs;
+            entry.size = cf_len;
+            entry.name = (char*)uniparam + cf_name_starting_offs;
+            string key(kit_config_name);  // use the name with space to ensure Konami-specific sort order
+            uni.insert(pair<string,uniparam_info_t>(key, entry));
+
+            map<int,uniparam_team_t>::iterator it = teams.find(team_id);
+            if (it == teams.end()) {
+                // add new team entry
+                uniparam_team_t te;
+                te.has_1st = false;
+                te.has_2nd = false;
+                te.has_gk1st = false;
+
+                pair<map<int,uniparam_team_t>::iterator, bool> res;
+                res = teams.insert(pair<int,uniparam_team_t>(team_id, te));
+                it = res.first;
+            }
+
+            // check for specific kits and set flags
+            if (second_underscore && it != teams.end()) {
+                char *n = (char*)uniparam + cf_name_starting_offs;
+                BYTE *p = uniparam + cf_starting_offs;
+
+                bool *flags[3];
+                flags[0] = &(it->second.has_1st);
+                flags[1] = &(it->second.has_2nd);
+                flags[2] = &(it->second.has_gk1st);
+
+                size_t n_len = strlen(n);
+                size_t suffix_len = strlen("realUni.bin");
+                for (int i=0; i<3; i++) {
+                    if (memcmp(second_underscore+1, strips[i], strlen(strips[i]))==0) {
+                        if (n_len > suffix_len) {
+                            char *s = n + n_len - suffix_len;
+                            if (memcmp(s, "realUni.bin", suffix_len)==0) {
+                                // found real uni
+                                bool *flag = flags[i];
+                                *flag = true;
+                                logu_("found %s real uni for %d\n", strips[i], team_id);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        free(kit_config_name);
+    }
+
+    logu_("processed %d kits\n", uni.size());
+    logu_("processed %d teams\n", teams.size());
+    logu_("uniparam:: step 2: starting the dummification ...\n");
+    //todo
+
+    logu_("uniparam:: step 3: rebuild the structure\n");
+
+    // 1st pass: count the memory required
+    size_t mem_req = 8; // header
+    int kit_count = uni.size();
+    // add toc size
+    mem_req += kit_count * 0xc;
+    // names
+    map<string,uniparam_info_t>::iterator it;
+    for (it = uni.begin(); it != uni.end(); it++) {
+        mem_req += strlen(it->second.name)+1;
+    }
+    // align at 0x10
+    mem_req += ((mem_req % 0x10) > 0) ? 0x10 - (mem_req % 0x10) : 0;
+    // blocks
+    for (it = uni.begin(); it != uni.end(); it++) {
+        size_t len = it->second.size;
+        mem_req += len;
+        mem_req += ((len % 0x10) > 0) ? 0x10 - (len % 0x10) : 0; // adjust for alignment
+    }
+    logu_("memory needed: %d bytes\n", mem_req);
+    logu_("total kits in new structure: %d\n", kit_count);
+
+    // 2nd pass: allocate and fill with data
+    BYTE *new_mem = (BYTE*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, mem_req);
+    if (!new_mem) {
+        logu_("uniparam:: FATAL problem: unable to allocate memory for new structure\n");
+        return;
+    }
+
+    *(DWORD*)new_mem = kit_count;
+    *(DWORD*)(new_mem+4) = 8;
+    DWORD toc_offs = 8;
+    DWORD offs = 8 + kit_count*0xc;
+    // names
+    for (it = uni.begin(); it != uni.end(); it++) {
+        size_t len = strlen(it->second.name)+1; // with zero-terminator
+        memcpy((char*)new_mem + offs, it->second.name, len);
+        // update toc
+        *(DWORD*)(new_mem + toc_offs + 8) = offs;
+        // next
+        offs += len;
+        toc_offs += 0xc;
+    }
+    // align at 0x10
+    offs += ((offs % 0x10) > 0) ? 0x10 - (offs % 0x10) : 0;
+    // blocks
+    toc_offs = 8;
+    for (it = uni.begin(); it != uni.end(); it++) {
+        size_t len = it->second.size;
+        memcpy((char*)new_mem + offs, it->second.block, len);
+        // update toc
+        *(DWORD*)(new_mem + toc_offs) = offs;
+        *(DWORD*)(new_mem + toc_offs + 4) = len;
+        // next
+        offs += len;
+        offs += ((len % 0x10) > 0) ? 0x10 - (len % 0x10) : 0; // adjust for alignment
+        toc_offs += 0xc;
+    }
+
+    logu_("uniparam:: new structure created at: %p\n", new_mem);
+
+    // replace pointer with the one to our new structure
+    *uniparam_addr = new_mem;
+
+    // DEBUG:: dump to disk
+    {
+        wstring fname(sider_dir);
+        fname += L"new_uni.bin";
+        FILE *f = _wfopen(fname.c_str(), L"wb");
+        fwrite(new_mem, mem_req, 1, f);
+        fclose(f);
+    }
+    {
+        wstring fname(sider_dir);
+        fname += L"old_uni.bin";
+        FILE *f = _wfopen(fname.c_str(), L"wb");
+        fwrite(uniparam, mem_req, 1, f);
+        fclose(f);
+    }
+}
+
 static BYTE* get_uniparam()
 {
     if (_uniparam_base) {
@@ -601,7 +786,13 @@ static BYTE* get_uniparam()
             if (obj2) {
                 void *obj3 = *(void**)((BYTE*)obj2+0x40);
                 if (obj3) {
-                    return *(BYTE**)((BYTE*)obj3+8);
+                    BYTE **uniparam_addr = (BYTE**)((BYTE*)obj3+8);
+                    // dummify all kits, if not done yet
+                    if (!_dummified) {
+                        dummify_uniparam(uniparam_addr);
+                        _dummified = true;
+                    }
+                    return *uniparam_addr;
                 }
             }
         }

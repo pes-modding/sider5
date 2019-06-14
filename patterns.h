@@ -454,4 +454,22 @@ static BYTE pattern_clear_team_for_kits[21] =
     "\xc7\x42\x30\xff\xff\xff\xff";
 static int offs_clear_team_for_kits = 0;
 
+/*
+00000001509C77EE | C7 44 24 40 01 00 00 00            | mov dword ptr ss:[rsp+40],1          | loaded uniparam
+00000001509C77F6 | 45 31 C0                           | xor r8d,r8d                          |
+00000001509C77F9 | 41 8D 50 20                        | lea edx,qword ptr ds:[r8+20]         |
+00000001509C77FD | 48 8D 4C 24 40                     | lea rcx,qword ptr ss:[rsp+40]        |
+...
+00000001509C781E | 48 89 46 40                        | mov qword ptr ds:[rsi+40],rax        | wrote +0x40
+00000001509C7822 | C6 46 62 01                        | mov byte ptr ds:[rsi+62],1           |
+00000001509C7826 | 48 8B 5C 24 48                     | mov rbx,qword ptr ss:[rsp+48]        |
+00000001509C782B | 48 8B 74 24 50                     | mov rsi,qword ptr ss:[rsp+50]        |
+*/
+static BYTE pattern_uniparam_loaded[19] =
+    "\x48\x89\x46\x40"
+    "\xc6\x46\x62\x01"
+    "\x48\x8b\x5c\x24\x48"
+    "\x48\x8b\x74\x24\x50";
+static int offs_uniparam_loaded = -(0x81e - 0x7ee - 8);
+
 #endif

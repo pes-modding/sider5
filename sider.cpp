@@ -552,6 +552,10 @@ extern "C" void sider_clear_team_for_kits(KIT_STATUS_INFO *ksi, DWORD *which);
 
 extern "C" void sider_clear_team_for_kits_hk();
 
+extern "C" BYTE* sider_loaded_uniparam(BYTE *uniparam);
+
+extern "C" void sider_loaded_uniparam_hk();
+
 static DWORD dwThreadId;
 static DWORD hookingThreadId = 0;
 static HMODULE myHDLL;
@@ -604,17 +608,18 @@ static void string_strip_quotes(wstring& s)
     s.erase(0,b);
 }
 
-static void dummify_uniparam(BYTE **uniparam_addr)
+static BYTE* dummify_uniparam(BYTE *uniparam)
 {
     map<string,uniparam_info_t> uni;
     map<int,uniparam_team_t> teams;
 
-    BYTE *uniparam = *uniparam_addr;
-
     char *strips[] = {"1st", "2nd", "GK1st"};
 
     // read existing data structure
+    logu_("uniparam:: step 1: reading existing structure...\n");
+
     DWORD numItems = *(DWORD*)(uniparam);
+    logu_("numItems = %08x\n", numItems);
     DWORD sec3start = *(DWORD*)(uniparam+4);
     DWORD sec3end = sec3start + numItems * 0x0c;
     for (DWORD offs = sec3start; offs != sec3end; offs += 0x0c ) {
@@ -631,19 +636,23 @@ static void dummify_uniparam(BYTE **uniparam_addr)
 
             int team_id = 0;
             if (sscanf(kit_config_name,"%d",&team_id)==1) {
-                logu_("processing kit for team %d:: %s\n", team_id, (char*)uniparam + cf_name_starting_offs);
+                //logu_("processing kit for team %d:: %s\n", team_id, (char*)uniparam + cf_name_starting_offs);
             }
             else {
-                logu_("processing kit :: %s\n", (char*)uniparam + cf_name_starting_offs);
+                //logu_("processing kit :: %s\n", (char*)uniparam + cf_name_starting_offs);
                 team_id = 0x10000000; // fake id: for referees
             }
 
             uniparam_info_t entry;
             entry.block = uniparam + cf_starting_offs;
             entry.size = cf_len;
-            entry.name = (char*)uniparam + cf_name_starting_offs;
+            entry.name = strdup((char*)uniparam + cf_name_starting_offs);
             string key(kit_config_name);  // use the name with space to ensure Konami-specific sort order
             uni.insert(pair<string,uniparam_info_t>(key, entry));
+
+            if (team_id == 0x10000000) {
+                continue;
+            }
 
             map<int,uniparam_team_t>::iterator it = teams.find(team_id);
             if (it == teams.end()) {
@@ -678,7 +687,7 @@ static void dummify_uniparam(BYTE **uniparam_addr)
                                 // found real uni
                                 bool *flag = flags[i];
                                 *flag = true;
-                                logu_("found %s real uni for %d\n", strips[i], team_id);
+                                //logu_("found %s real uni for %d\n", strips[i], team_id);
                             }
                         }
                     }
@@ -692,8 +701,45 @@ static void dummify_uniparam(BYTE **uniparam_addr)
     logu_("processed %d kits\n", uni.size());
     logu_("processed %d teams\n", teams.size());
     logu_("uniparam:: step 2: starting the dummification ...\n");
-    //todo
 
+    BYTE dummy_block[0x80];
+    char dummy_name[0x80];
+    char dummy_key[0x80];
+    memset(dummy_block, 0, sizeof(dummy_block));
+
+    int dummy_count = 0;
+    map<int,uniparam_team_t>::iterator j;
+    for (j = teams.begin(); j != teams.end(); j++) {
+        if (j->first == 0x10000000) {
+            // fake id for referees
+            continue;
+        }
+
+        bool flags[3];
+        flags[0] = j->second.has_1st;
+        flags[1] = j->second.has_2nd;
+        flags[2] = j->second.has_gk1st;
+
+        // add dummies
+        for (int k=0; k<3; k++) {
+            if (!flags[k]) {
+                sprintf(dummy_name, "%d_DEF_%s_realUni.bin", j->first, strips[k]);
+                sprintf(dummy_key, "%d DEF_%s_realUni.bin", j->first, strips[k]); // with a space for correct sorting
+
+                uniparam_info_t entry;
+                entry.block = dummy_block;
+                entry.size = 0x78;
+                entry.name = strdup(dummy_name);
+
+                string key(dummy_key);
+                uni.insert(pair<string,uniparam_info_t>(key, entry));
+                //logu_("added dummy kit: %s\n", entry.name);
+                dummy_count++;
+            }
+        }
+    }
+
+    logu_("uniparam:: added %d dummy kit blocks\n", dummy_count);
     logu_("uniparam:: step 3: rebuild the structure\n");
 
     // 1st pass: count the memory required
@@ -721,7 +767,7 @@ static void dummify_uniparam(BYTE **uniparam_addr)
     BYTE *new_mem = (BYTE*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, mem_req);
     if (!new_mem) {
         logu_("uniparam:: FATAL problem: unable to allocate memory for new structure\n");
-        return;
+        return NULL;
     }
 
     *(DWORD*)new_mem = kit_count;
@@ -756,8 +802,12 @@ static void dummify_uniparam(BYTE **uniparam_addr)
 
     logu_("uniparam:: new structure created at: %p\n", new_mem);
 
-    // replace pointer with the one to our new structure
-    *uniparam_addr = new_mem;
+    // free temp memory
+    for (it = uni.begin(); it != uni.end(); it++) {
+        if (it->second.name) {
+            free(it->second.name);
+        }
+    }
 
     // DEBUG:: dump to disk
     {
@@ -774,6 +824,8 @@ static void dummify_uniparam(BYTE **uniparam_addr)
         fwrite(uniparam, mem_req, 1, f);
         fclose(f);
     }
+
+    return new_mem;
 }
 
 static BYTE* get_uniparam()
@@ -786,13 +838,7 @@ static BYTE* get_uniparam()
             if (obj2) {
                 void *obj3 = *(void**)((BYTE*)obj2+0x40);
                 if (obj3) {
-                    BYTE **uniparam_addr = (BYTE**)((BYTE*)obj3+8);
-                    // dummify all kits, if not done yet
-                    if (!_dummified) {
-                        dummify_uniparam(uniparam_addr);
-                        _dummified = true;
-                    }
-                    return *uniparam_addr;
+                    return *(BYTE**)((BYTE*)obj3+8);
                 }
             }
         }
@@ -833,7 +879,10 @@ static BYTE* find_kit_info(int team_id, char *suffix)
                         (team_id == id + 0x10000 && memcmp(first_underscore+1, "ACL", 3)==0)) {
                         if (memcmp(second_underscore+1, suffix, strlen(suffix))==0) {
                             BYTE *p = uniparam + cf_starting_offs;
-                            if (*p == 1) {
+                            char *n = (char*)uniparam + cf_name_starting_offs;
+                            size_t n_len = strlen(n);
+                            size_t suff_len = strlen("_realUni.bin");
+                            if ((n_len > suff_len) && memcmp(n + n_len - suff_len, "_realUni.bin", suff_len)==0) {
                                 // matched a licensed kit
                                 logu_("find_kit_info:: name: {%s}\n", (char*)uniparam + cf_name_starting_offs);
                                 free(kit_config_name);
@@ -1169,6 +1218,7 @@ public:
     BYTE *_hp_at_kit_status;
     BYTE *_hp_at_set_team_for_kits;
     BYTE *_hp_at_clear_team_for_kits;
+    BYTE *_hp_at_uniparam_loaded;
 
     BYTE *_hp_at_set_min_time;
     BYTE *_hp_at_set_max_time;
@@ -1227,6 +1277,7 @@ public:
                  _hp_at_kit_status(NULL),
                  _hp_at_set_team_for_kits(NULL),
                  _hp_at_clear_team_for_kits(NULL),
+                 _hp_at_uniparam_loaded(NULL),
                  _hp_at_set_min_time(NULL),
                  _hp_at_set_max_time(NULL),
                  _hp_at_set_minutes(NULL),
@@ -4406,6 +4457,7 @@ DWORD sider_data_ready(FILE_LOAD_INFO *fli)
             }
         }
     }
+
     return 0;
 }
 
@@ -4471,6 +4523,17 @@ void sider_clear_team_for_kits(KIT_STATUS_INFO *ksi, DWORD *which)
             logu_("sider_clear_team_for_kits: away=%d, is_edit_mode=%d\n", decode_team_id(ksi->away_team_id_encoded), ksi->is_edit_mode);
         }
     }
+}
+
+BYTE* sider_loaded_uniparam(BYTE* uniparam)
+{
+    logu_("uniparam loaded at: %p\n", uniparam);
+    BYTE *new_uniparam = dummify_uniparam(uniparam);
+    if (new_uniparam) {
+        logu_("new uniparam at: %p\n", new_uniparam);
+        return new_uniparam;
+    }
+    return uniparam;
 }
 
 void sider_check_kit_choice(MATCH_INFO_STRUCT *mi, DWORD home_or_away)
@@ -5853,7 +5916,7 @@ DWORD install_func(LPVOID thread_param) {
     hook_cache_t hcache(cache_file);
 
     // prepare patterns
-#define NUM_PATTERNS 27
+#define NUM_PATTERNS 28
     BYTE *frag[NUM_PATTERNS];
     frag[0] = lcpk_pattern_at_read_file;
     frag[1] = lcpk_pattern_at_get_size;
@@ -5882,6 +5945,7 @@ DWORD install_func(LPVOID thread_param) {
     frag[24] = pattern_kit_status;
     frag[25] = pattern_set_team_for_kits;
     frag[26] = pattern_clear_team_for_kits;
+    frag[27] = pattern_uniparam_loaded;
 
     memset(_variations, 0xff, sizeof(_variations));
     _variations[0] = 23;
@@ -5917,6 +5981,7 @@ DWORD install_func(LPVOID thread_param) {
     frag_len[24] = _config->_lua_enabled ? sizeof(pattern_kit_status)-1 : 0;
     frag_len[25] = _config->_lua_enabled ? sizeof(pattern_set_team_for_kits)-1 : 0;
     frag_len[26] = _config->_lua_enabled ? sizeof(pattern_clear_team_for_kits)-1 : 0;
+    frag_len[27] = _config->_lua_enabled ? sizeof(pattern_uniparam_loaded)-1 : 0;
 
     int offs[NUM_PATTERNS];
     offs[0] = lcpk_offs_at_read_file;
@@ -5946,6 +6011,7 @@ DWORD install_func(LPVOID thread_param) {
     offs[24] = offs_kit_status;
     offs[25] = offs_set_team_for_kits;
     offs[26] = offs_clear_team_for_kits;
+    offs[27] = offs_uniparam_loaded;
 
     BYTE **addrs[NUM_PATTERNS];
     addrs[0] = &_config->_hp_at_read_file;
@@ -5975,6 +6041,7 @@ DWORD install_func(LPVOID thread_param) {
     addrs[24] = &_config->_hp_at_kit_status;
     addrs[25] = &_config->_hp_at_set_team_for_kits;
     addrs[26] = &_config->_hp_at_clear_team_for_kits;
+    addrs[27] = &_config->_hp_at_uniparam_loaded;
 
     // check hook cache first
     for (int i=0;; i++) {
@@ -6085,7 +6152,8 @@ bool all_found(config_t *cfg) {
             cfg->_hp_at_data_ready > 0 &&
             cfg->_hp_at_kit_status > 0 &&
             cfg->_hp_at_set_team_for_kits > 0 &&
-            cfg->_hp_at_clear_team_for_kits > 0
+            cfg->_hp_at_clear_team_for_kits > 0 &&
+            cfg->_hp_at_uniparam_loaded > 0
         );
     }
     if (cfg->_num_minutes > 0) {
@@ -6229,11 +6297,13 @@ bool hook_if_all_found() {
             hook_call(_config->_hp_at_check_kit_choice, (BYTE*)sider_check_kit_choice_hk, 0);
 
             _uniparam_base = get_target_location2(_config->_hp_at_get_uniparam);
+            log_(L"_uniparam_base = %p\n", _uniparam_base);
 
             hook_call_rdx(_config->_hp_at_kit_status, (BYTE*)sider_kit_status_hk, 2);
 
             hook_call_rcx(_config->_hp_at_set_team_for_kits, (BYTE*)sider_set_team_for_kits_hk, 2);
             hook_call(_config->_hp_at_clear_team_for_kits, (BYTE*)sider_clear_team_for_kits_hk, 1);
+            hook_call_rdx(_config->_hp_at_uniparam_loaded, (BYTE*)sider_loaded_uniparam_hk, 0);
 
             BYTE *old_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_old;
             BYTE *new_moved_call = _config->_hp_at_def_stadium_name + def_stadium_name_moved_call_offs_new;

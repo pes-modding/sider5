@@ -25,6 +25,7 @@ extern sider_data_ready:proc
 extern sider_kit_status:proc
 extern sider_set_team_for_kits:proc
 extern sider_clear_team_for_kits:proc
+extern sider_loaded_uniparam:proc
 
 .code
 sider_read_file_hk proc
@@ -486,5 +487,35 @@ sider_clear_team_for_kits_hk proc
         ret
 
 sider_clear_team_for_kits_hk endp
+
+;00000001509C77F6 | 45 31 C0                           | xor r8d,r8d                          |
+;00000001509C77F9 | 41 8D 50 20                        | lea edx,qword ptr ds:[r8+20]         |
+;00000001509C77FD | 48 8D 4C 24 40                     | lea rcx,qword ptr ss:[rsp+40]        |
+
+sider_loaded_uniparam_hk proc
+
+        push    rcx
+        push    rdx
+        push    r8
+        push    r9
+        push    r10
+        push    r11
+        sub     rsp,28h
+        mov     rcx,rax
+        call    sider_loaded_uniparam
+        mov     [rsi+38h],rax
+        add     rsp,28h
+        pop     r11
+        pop     r10
+        pop     r9
+        pop     r8
+        pop     rdx
+        pop     rcx
+        xor     r8d,r8d
+        lea     edx,qword ptr [r8+20h]
+        lea     rcx,qword ptr [rsp+48h]
+        ret
+
+sider_loaded_uniparam_hk endp
 
 end

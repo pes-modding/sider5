@@ -608,7 +608,7 @@ static void string_strip_quotes(wstring& s)
     s.erase(0,b);
 }
 
-static BYTE* dummify_uniparam(BYTE *uniparam)
+static BYTE* dummify_uniparam(BYTE *uniparam, size_t sz, size_t *new_sz)
 {
     map<string,uniparam_info_t> uni;
     map<int,uniparam_team_t> teams;
@@ -764,9 +764,12 @@ static BYTE* dummify_uniparam(BYTE *uniparam)
     logu_("total kits in new structure: %d\n", kit_count);
 
     // 2nd pass: allocate and fill with data
-    BYTE *new_mem = (BYTE*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, mem_req);
+    BYTE *new_uni = (BYTE*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, mem_req + 0x10);
+    *(size_t*)(new_uni+8) = mem_req; // record size;
+    BYTE *new_mem = new_uni + 0x10; // actual data starts here
     if (!new_mem) {
         logu_("uniparam:: FATAL problem: unable to allocate memory for new structure\n");
+        *new_sz = 0;
         return NULL;
     }
 
@@ -821,10 +824,11 @@ static BYTE* dummify_uniparam(BYTE *uniparam)
         wstring fname(sider_dir);
         fname += L"old_uni.bin";
         FILE *f = _wfopen(fname.c_str(), L"wb");
-        fwrite(uniparam, mem_req, 1, f);
+        fwrite(uniparam, sz, 1, f);
         fclose(f);
     }
 
+    *new_sz = mem_req;
     return new_mem;
 }
 
@@ -4527,10 +4531,14 @@ void sider_clear_team_for_kits(KIT_STATUS_INFO *ksi, DWORD *which)
 
 BYTE* sider_loaded_uniparam(BYTE* uniparam)
 {
+    size_t sz = *(size_t*)(uniparam-8);
+    size_t new_sz;
     logu_("uniparam loaded at: %p\n", uniparam);
-    BYTE *new_uniparam = dummify_uniparam(uniparam);
+    logu_("uniparam size: %d (0x%x)\n", sz, sz);
+    BYTE *new_uniparam = dummify_uniparam(uniparam, sz, &new_sz);
     if (new_uniparam) {
         logu_("new uniparam at: %p\n", new_uniparam);
+        logu_("new uniparam size: %d (0x%x)\n", new_sz, new_sz);
         return new_uniparam;
     }
     return uniparam;

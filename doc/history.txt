@@ -2,6 +2,13 @@ Sider 5 Release History
 =======================
 
 
+Jun 15, 2019
+v5.4.2
+- support for automatic dummification of UniformParameter.bin
+  (This is needed so that the one and only requirement for kitserver kits
+  to work for a team is to have that team licensed in Team.bin)
+
+
 May 30, 2019
 v5.4.1
 - support for 1.06.00 game exe

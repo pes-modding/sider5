@@ -953,6 +953,7 @@ public:
     bool _lua_enabled;
     bool _jit_enabled;
     bool _luajit_extensions_enabled;
+    bool _dummify_uniparam;
     list<wstring> _lua_extra_globals;
     int _lua_gc_opt;
     int _dll_mapping_option;
@@ -1023,6 +1024,7 @@ public:
                  _lua_enabled(true),
                  _jit_enabled(true),
                  _luajit_extensions_enabled(false),
+                 _dummify_uniparam(true),
                  _lua_gc_opt(LUA_GCSTEP),
                  _close_sider_on_exit(false),
                  _start_minimized(false),
@@ -1285,6 +1287,10 @@ public:
 
         _luajit_extensions_enabled = GetPrivateProfileInt(_section_name.c_str(),
             L"luajit.ext.enabled", _luajit_extensions_enabled,
+            config_ini);
+
+        _dummify_uniparam = GetPrivateProfileInt(_section_name.c_str(),
+            L"dummify.uniparam", _dummify_uniparam,
             config_ini);
 
         _key_cache_ttl_sec = GetPrivateProfileInt(_section_name.c_str(),
@@ -4535,11 +4541,13 @@ BYTE* sider_loaded_uniparam(BYTE* uniparam)
     size_t new_sz;
     logu_("uniparam loaded at: %p\n", uniparam);
     logu_("uniparam size: %d (0x%x)\n", sz, sz);
-    BYTE *new_uniparam = dummify_uniparam(uniparam, sz, &new_sz);
-    if (new_uniparam) {
-        logu_("new uniparam at: %p\n", new_uniparam);
-        logu_("new uniparam size: %d (0x%x)\n", new_sz, new_sz);
-        return new_uniparam;
+    if (_config->_dummify_uniparam) {
+        BYTE *new_uniparam = dummify_uniparam(uniparam, sz, &new_sz);
+        if (new_uniparam) {
+            logu_("new uniparam at: %p\n", new_uniparam);
+            logu_("new uniparam size: %d (0x%x)\n", new_sz, new_sz);
+            return new_uniparam;
+        }
     }
     return uniparam;
 }
@@ -5856,6 +5864,7 @@ DWORD install_func(LPVOID thread_param) {
     log_(L"lua.gc.opt = %s\n", (_config->_lua_gc_opt == LUA_GCSTEP)? L"step" : L"collect");
     log_(L"jit.enabled = %d\n", _config->_jit_enabled);
     log_(L"luajit.ext.enabled = %d\n", _config->_luajit_extensions_enabled);
+    log_(L"dummify.uniparam = %d\n", _config->_dummify_uniparam);
     //log_(L"address-cache.enabled = %d\n", (int)(!_config->_ac_off));
     log_(L"key-cache.ttl-sec = %d\n", _config->_key_cache_ttl_sec);
     log_(L"rewrite-cache.ttl-sec = %d\n", _config->_rewrite_cache_ttl_sec);
